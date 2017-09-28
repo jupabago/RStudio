@@ -1,0 +1,195 @@
+---
+---
+title: "Final Romn Based Analysis"
+author: "Juan P Barraza"
+date: "9/28/2017"
+output: html_document
+---
+
+```{r AnalysisSetup, include= FALSE, echo=FALSE, fig.width=9, fig.height=7, results='asis'}
+library(rdist)
+library(pixmap)
+library(rtiff)
+library(reshape2)
+library(gplots)
+library(dplyr)
+library(plyr)
+library(gdata)
+library(ggplot2)
+library(cowplot)
+
+#### 1. THE SETUP
+#### some metadata info needed here
+# what is the xy dimension in pixels
+rm(list = ls())
+
+thresholdImage<-function(filesList,channel,side){
+  c1 <- array(0, c(side, side, length(filesList)))
+  for(i in 1:length(filesList)){
+    print(paste("loading ch1...", i, "/", length(filesList), filesList[i]))
+    #c1[,,i]<-readTiff(filesList[i])@green
+    c1[,,i]<-pixmap::getChannels(readTiff(filesList[i]), colors = channel)
+  }
+  c1_t <- array(0, c(side, side, length(filesList)))
+  for(i in 1:dim(c1)[3]){
+    print(paste("thresholding ch1...", i, "/", length(filesList), filesList[i]))
+    th <- autoThreshold(c1[,,i], mean(c1[,,i]))[2]
+    c1_t[,,i][c1[,,i] > th] <- 1 
+  }
+  return(c1_t)
+}
+
+CorrectSampleVolume<-function(thresholdedImage, xytotal, ztotal, xydim, zdim){#this limits the boundaries of voxel sampling to prevent going out of bounds
+  correctedImage<- thresholdedImage[  thresholdedImage$x >= xydim & thresholdedImage$x <= (xytotal-xydim) &
+                                        thresholdedImage$y >= xydim & thresholdedImage$y <= (xytotal-xydim) &
+                                        thresholdedImage$z >= zdim & thresholdedImage$z <= (ztotal-zdim),]
+  return(correctedImage)
+}
+
+IdVoxel<-function(thresholdedImage){#this makes a df with the coordinates from all voxel objects
+  dfVoxelCoords <- data.frame(which(thresholdedImage == 1, T))
+  colnames(dfVoxelCoords) <- c("x", "y", "z")
+  return(dfVoxelCoords)
+}
+
+SampleVoxels<-function(voxelsCoords, sampleSize){#randomly samples non-empty voxels from a thresholded image
+  sampledVoxels <- sample(1:dim(voxelsCoords)[1], size = sampleSize)
+  sampleVoxelsCoords <- voxelsCoords[sampledVoxels,]
+  return(sampleVoxelsCoords)
+}
+
+DistanceBox<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){#takes a voxel and collects all the surrounding voxels within the specified box
+  #input of xydim and zdim is in voxels
+  outbox<-thresholdedImage[(focus$x-xydim):(focus$x+xydim), (focus$y-xydim):(focus$y+xydim), (focus$z-zdim):(focus$z+zdim)]
+  outboxCoords<-(IdVoxel(outbox))#find non-empty voxels in box
+  outboxCoords<-outboxCoords-1#move to the orignin
+  outboxCoords$x<-outboxCoords$x*xyscale#convert pixels to real lengths
+  outboxCoords$y<-outboxCoords$y*xyscale
+  outboxCoords$z<-outboxCoords$z*zscale
+  distances<-as.data.frame(t(cdist(t(as.matrix(c(xydim*xyscale, xydim*xyscale, zdim*zscale))), as.matrix(outboxCoords))))
+  return(distances)
+}
+
+Binning<-function(dfDistances){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
+  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
+  bins<-seq(0, max(dfDistances)+2,2)#establish the binning
+  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
+  densityTable<-as.data.frame(histogram$density*2)
+  return(cbind(histogram$mids, densityTable))
+}
+
+LoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale ){
+  loopBox<-list()
+  for (i in 1:length(voxelsList[[1]])){
+    loopBox[[i]]<-Binning(DistanceBox(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale))
+  }
+  return(loopBox)
+}
+
+MergeStats<-function(dataList){
+  mergeLoop<-Reduce(function(dtf1,dtf2) merge(dtf1,dtf2, by= "histogram$mids",all = TRUE),dataList)
+  finalData<-cbind(mergeLoop[1],rowMeans(mergeLoop[c(-1)],na.rm = TRUE), apply(mergeLoop[c(-1)], 1, sd,na.rm = TRUE))
+  colnames(finalData)<- c('distance', 'mean', 'SD')
+  return(finalData)
+}
+
+mainPipeline<-function(redImg,greenImg,xysize, zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim){
+voxCoordsRed<-CorrectSampleVolume(IdVoxel(redImg),xysize, zsize, xydimSearch, zdimSearch)
+voxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImg),xysize, zsize, xydimSearch, zdimSearch)
+
+sampleVoxRed<-SampleVoxels(voxCoordsRed, sampleSize)
+sampleVoxGreen<-SampleVoxels(voxCoordsGreen, sampleSize)
+
+distListRR<-LoopVoxels(sampleVoxRed, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+distListRG<-LoopVoxels(sampleVoxRed, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+distListGR<-LoopVoxels(sampleVoxGreen, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+distListGG<-LoopVoxels(sampleVoxGreen, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+
+finalRR<-MergeStats(distListRR)
+finalRG<-MergeStats(distListRG)
+finalGR<-MergeStats(distListGR)
+finalGG<-MergeStats(distListGG)
+
+finalData<-gdata::combine(finalGG,finalRG,finalRR,finalGR)
+
+ggplot()+
+  geom_point(data = finalData, aes(x=distance, y = mean, color = source))+
+  #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+  ggtitle(paste("Search box r (XY=",(xydimSearch*xyRealDim)," Z=",(zdimSearch*zRealDim),")", sep = ''))
+}
+```
+## Sg Abscess #1.1    
+```{r wt sg 1.1, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/TIFF Conversions (Unedited)/Asbcess Confocal (10-18-13)/Unedited TIFF Conversions/Z Aa Wt + Sg Abscess #1.1")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("c1", tif)]
+c2_files <- tif[grep("c2", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+redImgInput<-thresholdImage(c2_files,"red", 512)
+
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+
+```
+
+## Sg Abscess #1.2    
+```{r wt sg 1.2, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/TIFF Conversions (Unedited)/Asbcess Confocal (10-18-13)/Unedited TIFF Conversions/Z Aa Wt + Sg Abscess #1.2")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("c1", tif)]
+c2_files <- tif[grep("c2", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+redImgInput<-thresholdImage(c2_files,"red", 512)
+
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=18,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=18,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+
+```
+
+## Sg Abscess #1.3    
+```{r wt sg 1.3, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/TIFF Conversions (Unedited)/Asbcess Confocal (10-18-13)/Unedited TIFF Conversions/Z Aa Wt + Sg Abscess #1.3")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("c1", tif)]
+c2_files <- tif[grep("c2", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+redImgInput<-thresholdImage(c2_files,"red", 512)
+
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+
+```
+
+#visalize subset of images
+these <- c(2, 4, 6, 8, 10)
+gcols <- colorpanel(100, "black", "green")
+rcols <- colorpanel(100, "black", "red")
+quartz("", 10, 8)
+par(mfrow = c(4, 5), mar = c(1, 1, 1, 1))
+for(i in 1:5){
+  image(c1[,,these[i]], col = gcols, axes = F)
+}
+for(i in 1:5){
+  image(c1_t[,,these[i]], col = gcols, axes = F)
+}
+for(i in 1:5){
+  image(c2[,,these[i]], col = rcols, axes = F)
+}	
+for(i in 1:5){
+  image(c2_t[,,these[i]], col = rcols, axes = F)
+}
