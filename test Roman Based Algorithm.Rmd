@@ -116,7 +116,64 @@ ggplot()+
   #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
   ggtitle(paste("Search box r (XY=",(xydimSearch*xyRealDim)," Z=",(zdimSearch*zRealDim),")", sep = ''))
 }
+
 ```
+
+
+## Sg Abscess #1.1    
+```{r wt sg 1.1, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+testImage <- array(0, c(256, 256, 9))
+testImage[,,1]<-readTiff("square.tiff")@red
+testImage[,,2] <-readTiff("square.tiff")@red
+testImage[,,3] <-readTiff("square.tiff")@red
+testImage[,,4] <-readTiff("square.tiff")@red
+testImage[,,5] <-readTiff("square.tiff")@red
+testImage[,,6] <-readTiff("square.tiff")@red
+testImage[,,7] <-readTiff("square.tiff")@red
+testImage[,,8] <-readTiff("square.tiff")@red
+testImage[,,9] <-readTiff("square.tiff")@red
+
+xysize<-256
+zsize<-9
+
+xydimSearch<-2
+zdimSearch<-1
+
+xyRealDim<-1
+zRealDim<-1
+
+sampleSize<-100
+
+
+testImageCoords <- IdVoxel(testImage)
+correctedTestImageCoords<-CorrectSampleVolume(testImageCoords, xysize, zsize, xydimSearch, zdimSearch)
+testSampleVoxels<-SampleVoxels(correctedTestImageCoords, sampleSize)
+testLoopVoxels<-LoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+testMergeStats<-MergeStats(testLoopVoxels)
+
+
+#this is to test individual voxels
+testDistanceBox1<-distanceBox(testSampleVoxels[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceBox2<-distanceBox(testSampleVoxels[2,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceBox3<-distanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testBinning1<-binning(testDistanceBox1)
+testBinning2<-binning(testDistanceBox2)
+testBinning3<-binning(testDistanceBox3)
+testListBinning<-list()
+testListBinning[[1]]<- testBinning1
+testListBinning[[2]]<- testBinning2
+testListBinning[[3]]<- testBinning3
+
+#this is to test function "MergeStats" individually
+testMergeLoop<-Reduce(function(dtf1,dtf2) merge(dtf1,dtf2, by= "histogram$mids",all = TRUE),testLoopVoxels)
+finalData<-cbind(testMergeLoop[1],rowMeans(testMergeLoop[c(-1)],na.rm = TRUE), apply(testMergeLoop[c(-1)], 1, sd,na.rm = TRUE))
+colnames(finalData)<- c('distance', 'mean', 'SD')
+
+
+```
+
+
 ## Sg Abscess #1.1    
 ```{r wt sg 1.1, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
 
