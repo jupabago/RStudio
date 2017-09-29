@@ -120,9 +120,10 @@ ggplot()+
 ```
 
 
-## Sg Abscess #1.1    
-```{r wt sg 1.1, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+## Test Area
+```{r test Area, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
 
+#Image pixels go from 113 to 144
 testImage <- array(0, c(256, 256, 9))
 testImage[,,1]<-readTiff("square.tiff")@red
 testImage[,,2] <-readTiff("square.tiff")@red
@@ -154,12 +155,23 @@ testMergeStats<-MergeStats(testLoopVoxels)
 
 
 #this is to test individual voxels
-testDistanceBox1<-distanceBox(testSampleVoxels[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
-testDistanceBox2<-distanceBox(testSampleVoxels[2,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
-testDistanceBox3<-distanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
-testBinning1<-binning(testDistanceBox1)
-testBinning2<-binning(testDistanceBox2)
-testBinning3<-binning(testDistanceBox3)
+testDistanceBox1<-DistanceBox(testSampleVoxels[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceBox2<-DistanceBox(testSampleVoxels[2,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceBox3<-DistanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+
+RawBinning<-function(dfDistances){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
+  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
+  bins<-seq(0, max(dfDistances)+2,2)#establish the binning
+  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
+  densityTable<-as.data.frame(histogram$counts)
+  return(cbind(histogram$mids, densityTable))
+  #return(numDistances)
+}
+
+testBinning1<-Binning(testDistanceBox1)
+testRawBinning1<-RawBinning(testDistanceBox1)
+testBinning2<-Binning(testDistanceBox2)
+testBinning3<-Binning(testDistanceBox3)
 testListBinning<-list()
 testListBinning[[1]]<- testBinning1
 testListBinning[[2]]<- testBinning2
