@@ -114,7 +114,7 @@ finalData<-gdata::combine(finalGG,finalRG,finalRR,finalGR)
 ggplot()+
   geom_point(data = finalData, aes(x=distance, y = mean, color = source))+
   #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
-  ggtitle(paste("Search box r (XY=",(xydimSearch*xyRealDim)," Z=",(zdimSearch*zRealDim),")", sep = ''))
+  ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
 }
 
 ```
@@ -138,7 +138,7 @@ testImage[,,9] <-readTiff("square.tiff")@red
 xysize<-256
 zsize<-9
 
-xydimSearch<-2
+xydimSearch<-1
 zdimSearch<-1
 
 xyRealDim<-1
