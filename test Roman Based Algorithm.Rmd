@@ -160,25 +160,46 @@ testDistanceBox1<-DistanceBox(testSampleVoxels[1,],testImage, xydimSearch, zdimS
 testDistanceBox2<-DistanceBox(testSampleVoxels[2,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 testDistanceBox3<-DistanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 
-RawBinning<-function(dfDistances){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
+RawBinning<-function(dfDistances, boxVol){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
   numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
   bins<-seq(0, max(dfDistances)+2,2)#establish the binning
   histogram<-hist(numDistances, breaks = bins, plot = FALSE)
-  histCounts<-as.data.frame(histogram$counts)
-  histDensity<-as.data.frame(histogram$counts/length(numDistances))
-  histDensityFunction<-as.data.frame(histogram$density*2)
-  return(cbind(histogram$mids, histCounts, histDensity, histDensityFunction))
+  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
+  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
+  histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
+  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
+  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion)
+  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity")
+  return(finalData)
   #return(numDistances)
 }
 
+RawLoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale ){
+  loopBox<-list()
+  boxVolum<-((xyBoxDim*2)+1)*((xyBoxDim*2)+1)*((zBoxDim*2)+1)
+  for (i in 1:length(voxelsList[[1]])){
+    loopBox[[i]]<-RawBinning(DistanceBox(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale), boxVolum)
+  }
+  return(loopBox)
+}
+
+
+#Tests for new binning function
+
+testRawBinning1<-RawBinning(testDistanceBox1, boxVolume)
+testRawLoopVoxels<-RawLoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim) 
+testRbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),testRawLoopVoxels)
+testRbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity))%>% as.data.frame()->testSummarize
+
+#Tests for original binning function
 testBinning1<-Binning(testDistanceBox1)
-testRawBinning1<-RawBinning(testDistanceBox1)
 testBinning2<-Binning(testDistanceBox2)
 testBinning3<-Binning(testDistanceBox3)
 testListBinning<-list()
 testListBinning[[1]]<- testBinning1
 testListBinning[[2]]<- testBinning2
 testListBinning[[3]]<- testBinning3
+
 
 #this is to test function "MergeStats" individually
 testMergeLoop<-Reduce(function(dtf1,dtf2) merge(dtf1,dtf2, by= "histogram$mids",all = TRUE),testLoopVoxels)
