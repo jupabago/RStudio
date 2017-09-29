@@ -138,8 +138,9 @@ testImage[,,9] <-readTiff("square.tiff")@red
 xysize<-256
 zsize<-9
 
-xydimSearch<-1
+xydimSearch<-2
 zdimSearch<-1
+boxVolume<-((xydimSearch*2)+1)*((xydimSearch*2)+1)*((zdimSearch*2)+1)
 
 xyRealDim<-1
 zRealDim<-1
@@ -163,8 +164,10 @@ RawBinning<-function(dfDistances){#takes the list of pairwise distances between 
   numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
   bins<-seq(0, max(dfDistances)+2,2)#establish the binning
   histogram<-hist(numDistances, breaks = bins, plot = FALSE)
-  densityTable<-as.data.frame(histogram$counts)
-  return(cbind(histogram$mids, densityTable))
+  histCounts<-as.data.frame(histogram$counts)
+  histDensity<-as.data.frame(histogram$counts/length(numDistances))
+  histDensityFunction<-as.data.frame(histogram$density*2)
+  return(cbind(histogram$mids, histCounts, histDensity, histDensityFunction))
   #return(numDistances)
 }
 
