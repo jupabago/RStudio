@@ -17,8 +17,6 @@ library(ggplot2)
 library(cowplot)
 
 #### 1. THE SETUP
-#### some metadata info needed here
-# what is the xy dimension in pixels
 rm(list = ls())
 
 thresholdImage<-function(filesList,channel,side){
@@ -337,6 +335,37 @@ mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=25,zdimS
 mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=12,zdimSearch=3,sampleSize=100,xyRealDim=2.48,zRealDim=10)
 
 ```
+## Test of bullseye inverse image
+```{r wt sg 1.4, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("/Users/jupabago/testRstudioGithub/bulls eye inv")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("Slide", tif)]
+c2_files <- tif[grep("Slide", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 300)
+redImgInput<-thresholdImage(c2_files,"red", 300)
+
+testImageCoords <- IdVoxel(greenImgInput)
+correctedTestImageCoords<-CorrectSampleVolume(testImageCoords, 300, 10, 100, 1)
+testSampleVoxels<-SampleVoxels(correctedTestImageCoords, 100)
+
+#this is to test individual voxels
+testDistanceBox1<-DistanceBox(testBullcenter[1,],greenImgInput, 130, 1,1,1)
+
+#Tests for new binning function
+testRawBinning1<-RawBinning(testDistanceBox1, 10000)
+
+ggplot()+
+  geom_point(data = testRawBinning1, aes(x=distance, y = counts))
+  #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+  ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+
+```
+
 ## Test of bullseye image
 ```{r wt sg 1.4, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
 
@@ -365,7 +394,5 @@ ggplot()+
   geom_point(data = testRawBinning1, aes(x=distance, y = counts))
   #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
   ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
-
-
 
 ```
