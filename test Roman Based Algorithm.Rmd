@@ -12,7 +12,6 @@ library(rtiff)
 library(reshape2)
 library(gplots)
 library(dplyr)
-library(plyr)
 library(gdata)
 library(ggplot2)
 library(cowplot)
@@ -26,7 +25,6 @@ thresholdImage<-function(filesList,channel,side){
   c1 <- array(0, c(side, side, length(filesList)))
   for(i in 1:length(filesList)){
     print(paste("loading ch1...", i, "/", length(filesList), filesList[i]))
-    #c1[,,i]<-readTiff(filesList[i])@green
     c1[,,i]<-pixmap::getChannels(readTiff(filesList[i]), colors = channel)
   }
   c1_t <- array(0, c(side, side, length(filesList)))
@@ -92,6 +90,35 @@ MergeStats<-function(dataList){
   return(finalData)
 }
 
+RawBinning<-function(dfDistances, boxVol){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
+  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
+  bins<-seq(0, max(dfDistances)+2,2)#establish the binning
+  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
+  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
+  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
+  histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
+  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
+  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion)
+  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity")
+  return(finalData)
+  #return(numDistances)
+}
+
+RawLoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale ){
+  loopBox<-list()
+  boxVolum<-((xyBoxDim*2)+1)*((xyBoxDim*2)+1)*((zBoxDim*2)+1)
+  for (i in 1:length(voxelsList[[1]])){
+    loopBox[[i]]<-RawBinning(DistanceBox(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale), boxVolum)
+  }
+  return(loopBox)
+}
+
+RawMergeStats<-function(dataList){
+RbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),dataList)
+RbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity))%>% as.data.frame()->finalData
+return(finalData)
+}
+
 mainPipeline<-function(redImg,greenImg,xysize, zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim){
 voxCoordsRed<-CorrectSampleVolume(IdVoxel(redImg),xysize, zsize, xydimSearch, zdimSearch)
 voxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImg),xysize, zsize, xydimSearch, zdimSearch)
@@ -117,11 +144,52 @@ ggplot()+
   ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
 }
 
+rawPipeline<-function(redImg,greenImg,xysize, zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim){
+voxCoordsRed<-CorrectSampleVolume(IdVoxel(redImg),xysize, zsize, xydimSearch, zdimSearch)
+voxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImg),xysize, zsize, xydimSearch, zdimSearch)
+
+sampleVoxRed<-SampleVoxels(voxCoordsRed, sampleSize)
+sampleVoxGreen<-SampleVoxels(voxCoordsGreen, sampleSize)
+
+distListRR<-RawLoopVoxels(sampleVoxRed, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+distListRG<-RawLoopVoxels(sampleVoxRed, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+distListGR<-RawLoopVoxels(sampleVoxGreen, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+distListGG<-RawLoopVoxels(sampleVoxGreen, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+
+finalRR<-RawMergeStats(distListRR)
+finalRG<-RawMergeStats(distListRG)
+finalGR<-RawMergeStats(distListGR)
+finalGG<-RawMergeStats(distListGG)
+
+finalData<-gdata::combine(finalGG,finalRG,finalRR,finalGR)
+
+ggplot()+
+  geom_point(data = finalData, aes(x=distance, y = rawDensity, color = source))+
+  #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+  ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+}
+
 ```
 
 
 ## Test Area
-```{r test Area, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+```{r test Area, include= FALSE, eval=FALSE, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+testBullseye <- array(0, c(540, 720, 9))
+testBullseye[,,1]<-readTiff("ppbullseye.tiff")@red
+
+
+
+testImageCoords <- IdVoxel(testBullseye)
+
+c1 <- array(0, c(540, 720, 10))
+c1[,,1]<-pixmap::getChannels(readTiff("bullseye.tiff"), colors = "red")
+c1_t <- array(0, c(800, 800, 9))
+th <- autoThreshold(c1[,,1], mean(c1[,,1]))[2]
+c1_t[1][c1[1] > th] <- 1 
+
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+
 
 #Image pixels go from 113 to 144
 testImage <- array(0, c(256, 256, 9))
@@ -138,15 +206,14 @@ testImage[,,9] <-readTiff("square.tiff")@red
 xysize<-256
 zsize<-9
 
-xydimSearch<-2
-zdimSearch<-1
+xydimSearch<-20
+zdimSearch<-3
 boxVolume<-((xydimSearch*2)+1)*((xydimSearch*2)+1)*((zdimSearch*2)+1)
 
-xyRealDim<-1
-zRealDim<-1
+xyRealDim<-2
+zRealDim<-4
 
 sampleSize<-100
-
 
 testImageCoords <- IdVoxel(testImage)
 correctedTestImageCoords<-CorrectSampleVolume(testImageCoords, xysize, zsize, xydimSearch, zdimSearch)
@@ -154,39 +221,16 @@ testSampleVoxels<-SampleVoxels(correctedTestImageCoords, sampleSize)
 testLoopVoxels<-LoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim)
 testMergeStats<-MergeStats(testLoopVoxels)
 
-
 #this is to test individual voxels
 testDistanceBox1<-DistanceBox(testSampleVoxels[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 testDistanceBox2<-DistanceBox(testSampleVoxels[2,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 testDistanceBox3<-DistanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 
-RawBinning<-function(dfDistances, boxVol){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
-  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
-  bins<-seq(0, max(dfDistances)+2,2)#establish the binning
-  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
-  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
-  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
-  histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
-  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
-  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion)
-  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity")
-  return(finalData)
-  #return(numDistances)
-}
-
-RawLoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale ){
-  loopBox<-list()
-  boxVolum<-((xyBoxDim*2)+1)*((xyBoxDim*2)+1)*((zBoxDim*2)+1)
-  for (i in 1:length(voxelsList[[1]])){
-    loopBox[[i]]<-RawBinning(DistanceBox(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale), boxVolum)
-  }
-  return(loopBox)
-}
-
-
 #Tests for new binning function
-
 testRawBinning1<-RawBinning(testDistanceBox1, boxVolume)
+testRawBinning2<-RawBinning(testDistanceBox2, boxVolume)
+testRawBinning3<-RawBinning(testDistanceBox3, boxVolume)
+
 testRawLoopVoxels<-RawLoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim) 
 testRbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),testRawLoopVoxels)
 testRbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity))%>% as.data.frame()->testSummarize
@@ -224,6 +268,8 @@ c2_files <- tif[grep("c2", tif)]
 greenImgInput<-thresholdImage(c1_files,"green", 512)
 redImgInput<-thresholdImage(c2_files,"red", 512)
 
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
 mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
 mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
 
@@ -243,7 +289,83 @@ c2_files <- tif[grep("c2", tif)]
 greenImgInput<-thresholdImage(c1_files,"green", 512)
 redImgInput<-thresholdImage(c2_files,"red", 512)
 
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=18,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=18,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
 mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=18,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
 mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=18,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+
+```
+
+## Sg Abscess #1.3      
+```{r wt sg 1.3, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/TIFF Conversions (Unedited)/Asbcess Confocal (10-18-13)/Unedited TIFF Conversions/Z Aa Wt + Sg Abscess #1.3")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("c1", tif)]
+c2_files <- tif[grep("c2", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+redImgInput<-thresholdImage(c2_files,"red", 512)
+
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=13,zdimSearch=4,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=10,zdimSearch=3,sampleSize=100,xyRealDim=1.24,zRealDim=4)
+
+```
+
+## Other Sg Abscess files from Roman Github tests   
+```{r wt sg 1.4, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/2014_11_26RomanTIFFs/Experiment #1/wt abscess/wt abscess #1.1")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("Aa", tif)]
+c2_files <- tif[grep("Sg", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+redImgInput<-thresholdImage(c2_files,"red", 512)
+
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=25,zdimSearch=6,sampleSize=100,xyRealDim=2.48,zRealDim=10)
+rawPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=12,zdimSearch=3,sampleSize=100,xyRealDim=2.48,zRealDim=10)
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=25,zdimSearch=6,sampleSize=100,xyRealDim=2.48,zRealDim=10)
+mainPipeline(redImgInput,greenImgInput,xysize=512, zsize=13,xydimSearch=12,zdimSearch=3,sampleSize=100,xyRealDim=2.48,zRealDim=10)
+
+```
+## Test of bullseye image
+```{r wt sg 1.4, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("/Users/jupabago/testRstudioGithub/bulls eye2")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("Slide", tif)]
+c2_files <- tif[grep("Slide", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 300)
+redImgInput<-thresholdImage(c2_files,"red", 300)
+
+testImageCoords <- IdVoxel(greenImgInput)
+correctedTestImageCoords<-CorrectSampleVolume(testImageCoords, 300, 10, 100, 1)
+testSampleVoxels<-SampleVoxels(correctedTestImageCoords, 100)
+
+#this is to test individual voxels
+testDistanceBox1<-DistanceBox(testBullcenter[1,],greenImgInput, 130, 1,1,1)
+
+#Tests for new binning function
+testRawBinning1<-RawBinning(testDistanceBox1, 10000)
+
+ggplot()+
+  geom_point(data = testRawBinning1, aes(x=distance, y = counts))
+  #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+  ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+
+
 
 ```
