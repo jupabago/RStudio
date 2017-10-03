@@ -1,5 +1,5 @@
 ---
-title: "Final Romn Based Analysis"
+title: "Final Roman Based Analysis"
 author: "Juan P Barraza"
 date: "9/28/2017"
 output: html_document
