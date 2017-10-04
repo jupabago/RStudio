@@ -53,15 +53,31 @@ SampleVoxels<-function(voxelsCoords, sampleSize){#randomly samples non-empty vox
   return(sampleVoxelsCoords)
 }
 
-DistanceBox<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){#takes a voxel and collects all the surrounding voxels within the specified box
+DistanceBox<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){
+  #takes a voxel and collects all the surrounding voxels within the specified box
   #input of xydim and zdim is in voxels
   outbox<-thresholdedImage[(focus$x-xydim):(focus$x+xydim), (focus$y-xydim):(focus$y+xydim), (focus$z-zdim):(focus$z+zdim)]
   outboxCoords<-(IdVoxel(outbox))#find non-empty voxels in box
-  outboxCoords<-outboxCoords-1#move to the orignin
+  outboxCoords<-outboxCoords-1#move to the origin
   outboxCoords$x<-outboxCoords$x*xyscale#convert pixels to real lengths
   outboxCoords$y<-outboxCoords$y*xyscale
   outboxCoords$z<-outboxCoords$z*zscale
   distances<-as.data.frame(t(cdist(t(as.matrix(c(xydim*xyscale, xydim*xyscale, zdim*zscale))), as.matrix(outboxCoords))))
+  return(distances)
+}
+
+DistanceRadius<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){
+  #takes a voxel and collects all the surrounding voxels within the specified sphere
+  #input of xydim and zdim is in voxels
+  #maximum distance allowed is capped at xydim*xyscale
+  outbox<-thresholdedImage[(focus$x-xydim):(focus$x+xydim), (focus$y-xydim):(focus$y+xydim), (focus$z-zdim):(focus$z+zdim)]
+  outboxCoords<-(IdVoxel(outbox))#find non-empty voxels in box
+  outboxCoords<-outboxCoords-1#move to the origin
+  outboxCoords$x<-outboxCoords$x*xyscale#convert pixels to real lengths
+  outboxCoords$y<-outboxCoords$y*xyscale
+  outboxCoords$z<-outboxCoords$z*zscale
+  distances<-as.data.frame(t(cdist(t(as.matrix(c(xydim*xyscale, xydim*xyscale, zdim*zscale))), as.matrix(outboxCoords))))
+  distances<-subset(distances,!(distances[1]>(xydim*xyscale)))#this filters out all the distances larger than the radius
   return(distances)
 }
 
@@ -173,22 +189,6 @@ ggplot()+
 ## Test Area
 ```{r test Area, include= FALSE, eval=FALSE, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
 
-testBullseye <- array(0, c(540, 720, 9))
-testBullseye[,,1]<-readTiff("ppbullseye.tiff")@red
-
-
-
-testImageCoords <- IdVoxel(testBullseye)
-
-c1 <- array(0, c(540, 720, 10))
-c1[,,1]<-pixmap::getChannels(readTiff("bullseye.tiff"), colors = "red")
-c1_t <- array(0, c(800, 800, 9))
-th <- autoThreshold(c1[,,1], mean(c1[,,1]))[2]
-c1_t[1][c1[1] > th] <- 1 
-
-greenImgInput<-thresholdImage(c1_files,"green", 512)
-
-
 #Image pixels go from 113 to 144
 testImage <- array(0, c(256, 256, 9))
 testImage[,,1]<-readTiff("square.tiff")@red
@@ -204,12 +204,12 @@ testImage[,,9] <-readTiff("square.tiff")@red
 xysize<-256
 zsize<-9
 
-xydimSearch<-20
-zdimSearch<-3
+xydimSearch<-10
+zdimSearch<-4
 boxVolume<-((xydimSearch*2)+1)*((xydimSearch*2)+1)*((zdimSearch*2)+1)
 
 xyRealDim<-2
-zRealDim<-4
+zRealDim<-5
 
 sampleSize<-100
 
@@ -219,7 +219,6 @@ testSampleVoxels<-SampleVoxels(correctedTestImageCoords, sampleSize)
 testLoopVoxels<-LoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim)
 testMergeStats<-MergeStats(testLoopVoxels)
 
-#this is to test individual voxels
 testDistanceBox1<-DistanceBox(testSampleVoxels[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 testDistanceBox2<-DistanceBox(testSampleVoxels[2,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 testDistanceBox3<-DistanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
@@ -228,6 +227,20 @@ testDistanceBox3<-DistanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimS
 testRawBinning1<-RawBinning(testDistanceBox1, boxVolume)
 testRawBinning2<-RawBinning(testDistanceBox2, boxVolume)
 testRawBinning3<-RawBinning(testDistanceBox3, boxVolume)
+
+#this is to test distance from the central voxel specific voxel
+testSquareCenter<-data.frame(c(128),c(128),c(5))
+colnames(testSquareCenter)<-c("x", "y","z")
+testDistanceBoxCenter<-DistanceBox(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceRadiusCenter<-DistanceRadius(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testRawBinningCenter<-RawBinning(testDistanceRadiusCenter, boxVolume)
+
+ggplot()+
+  geom_point(data = testRawBinningCenter, aes(x=distance, y = counts))
+
+
+
+
 
 testRawLoopVoxels<-RawLoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim) 
 testRbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),testRawLoopVoxels)
@@ -384,7 +397,9 @@ testImageCoords <- IdVoxel(greenImgInput)
 correctedTestImageCoords<-CorrectSampleVolume(testImageCoords, 300, 10, 100, 1)
 testSampleVoxels<-SampleVoxels(correctedTestImageCoords, 100)
 
-#this is to test individual voxels
+#this is to test individual voxels from the center of the image
+testBullCenter<-data.frame(c(150),c(150),c(5))
+colnames(testBullCenter)<-c("x", "y","z")
 testDistanceBox1<-DistanceBox(testBullcenter[1,],greenImgInput, 130, 1,1,1)
 
 #Tests for new binning function
