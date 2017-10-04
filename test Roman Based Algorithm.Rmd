@@ -228,20 +228,6 @@ testRawBinning1<-RawBinning(testDistanceBox1, boxVolume)
 testRawBinning2<-RawBinning(testDistanceBox2, boxVolume)
 testRawBinning3<-RawBinning(testDistanceBox3, boxVolume)
 
-#this is to test distance from the central voxel specific voxel
-testSquareCenter<-data.frame(c(128),c(128),c(5))
-colnames(testSquareCenter)<-c("x", "y","z")
-testDistanceBoxCenter<-DistanceBox(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
-testDistanceRadiusCenter<-DistanceRadius(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
-testRawBinningCenter<-RawBinning(testDistanceRadiusCenter, boxVolume)
-
-ggplot()+
-  geom_point(data = testRawBinningCenter, aes(x=distance, y = counts))
-
-
-
-
-
 testRawLoopVoxels<-RawLoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim) 
 testRbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),testRawLoopVoxels)
 testRbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity))%>% as.data.frame()->testSummarize
@@ -255,11 +241,19 @@ testListBinning[[1]]<- testBinning1
 testListBinning[[2]]<- testBinning2
 testListBinning[[3]]<- testBinning3
 
-
 #this is to test function "MergeStats" individually
 testMergeLoop<-Reduce(function(dtf1,dtf2) merge(dtf1,dtf2, by= "histogram$mids",all = TRUE),testLoopVoxels)
 finalData<-cbind(testMergeLoop[1],rowMeans(testMergeLoop[c(-1)],na.rm = TRUE), apply(testMergeLoop[c(-1)], 1, sd,na.rm = TRUE))
 colnames(finalData)<- c('distance', 'mean', 'SD')
+
+#this is to test distance from the central voxel specific voxel
+testSquareCenter<-data.frame(c(128),c(128),c(5))
+colnames(testSquareCenter)<-c("x", "y","z")
+testDistanceBoxCenter<-DistanceBox(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceRadiusCenter<-DistanceRadius(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testRawBinningCenter<-RawBinning(testDistanceRadiusCenter, boxVolume)
+ggplot()+
+  geom_point(data = testRawBinningCenter, aes(x=distance, y = counts))
 
 
 ```
@@ -409,5 +403,36 @@ ggplot()+
   geom_point(data = testRawBinning1, aes(x=distance, y = counts))
   #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
   ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+
+```
+
+## Test Spherical proportional occupancy
+```{r wt sg 1.4, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+RawBinning<-function(dfDistances, boxVol, binSize){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
+  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
+  bins<-seq(0, max(dfDistances)+binSize,binSize)#establish the binning criteria
+  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
+  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
+  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
+  histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
+  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
+  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion)
+  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity")
+  return(finalData)
+}
+
+SpherePropOcc<-function(binsList, frequencyList, voxelSize){
+  propOcc<-array(0,length(frequencyList))
+  for (i in 1:length(frequencyList)){
+    propOcc[i]<-frequencyList[i]*voxelSize/HollowSphereVolume(binsList[i],binsList[i+1])
+ } 
+}
+
+HollowSphereVolume<-function(r1,r2){
+  volume1<-4/3*pi*r1^3
+  volume2<-4/3*pi*r2^3
+  return(volume2-volume1)
+  }
 
 ```
