@@ -409,7 +409,7 @@ ggplot()+
 ## Test Spherical proportional occupancy
 ```{r wt sg 1.4, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
 
-RawBinning<-function(dfDistances, boxVol, binSize){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
+RawBinningNorm<-function(dfDistances, boxVol, binSize){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
   numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
   bins<-seq(0, max(dfDistances)+binSize,binSize)#establish the binning criteria
   histogram<-hist(numDistances, breaks = bins, plot = FALSE)
@@ -417,8 +417,9 @@ RawBinning<-function(dfDistances, boxVol, binSize){#takes the list of pairwise d
   histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
   histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
   histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
-  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion)
-  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity")
+  histNormSphereBinning<-as.data.frame(SpherePropOcc(bins,histogram$counts,20))
+  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion, histNormSphereBinning)
+  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity", "NormSphereDensity")
   return(finalData)
 }
 
@@ -426,13 +427,20 @@ SpherePropOcc<-function(binsList, frequencyList, voxelSize){
   propOcc<-array(0,length(frequencyList))
   for (i in 1:length(frequencyList)){
     propOcc[i]<-frequencyList[i]*voxelSize/HollowSphereVolume(binsList[i],binsList[i+1])
- } 
-}
+    }
+  return(propOcc)
+  }
+testBinsList<-seq(0, 22,2)
+testSpherePropOcc<-SpherePropOcc(testBinsList, testRawBinningCenter[2], 20)
+
 
 HollowSphereVolume<-function(r1,r2){
   volume1<-4/3*pi*r1^3
   volume2<-4/3*pi*r2^3
   return(volume2-volume1)
   }
+testRawBinningNorm<-RawBinningNorm(testDistanceRadiusCenter, boxVolume, 2)
+
+
 
 ```
