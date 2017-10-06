@@ -479,9 +479,29 @@ ggplot()+
 
 ```
 
-## Test Normalized Spherical Proportional Occupancy
+## Test Normalized Spherical Proportional Occupancy Wild Type   
+#Wild-type Aa with three different search volume, 1000 pixels sampled
 ```{r norm Spherical propo occupancy, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
 setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/2014_11_26RomanTIFFs/Experiment #1/wt abscess/wt abscess #1.1")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("Aa", tif)]
+c2_files <- tif[grep("Sg", tif)]
+
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+redImgInput<-thresholdImage(c2_files,"red", 512)
+
+NormRawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=10,zdimSearch=3,sampleSize=1000,xyRealDim=1.24,zRealDim=4, pipeBinSize = 2)
+NormRawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=13,zdimSearch=4,sampleSize=1000,xyRealDim=1.24,zRealDim=4, pipeBinSize = 2)
+NormRawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=16,zdimSearch=5,sampleSize=1000,xyRealDim=1.24,zRealDim=4, pipeBinSize = 2)
+
+```
+## Test Normalized Spherical Proportional Occupancy DspB
+```{r norm Spherical prop occupancy-DspB, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+
+setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/2014_11_26RomanTIFFs/Experiment #1/wt abscess/dspB abscess #1.1")
 parent <- getwd()
 files <- dir(parent, recursive = T)
 tif <- files[grep("tif", files)]
