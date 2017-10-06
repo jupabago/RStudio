@@ -18,7 +18,6 @@ library(cowplot)
 
 #### 1. THE SETUP
 rm(list = ls())
-
 thresholdImage<-function(filesList,channel,side){
   c1 <- array(0, c(side, side, length(filesList)))
   for(i in 1:length(filesList)){
@@ -33,26 +32,24 @@ thresholdImage<-function(filesList,channel,side){
   }
   return(c1_t)
 }
-
 CorrectSampleVolume<-function(thresholdedImage, xytotal, ztotal, xydim, zdim){#this limits the boundaries of voxel sampling to prevent going out of bounds
   correctedImage<- thresholdedImage[  thresholdedImage$x >= xydim & thresholdedImage$x <= (xytotal-xydim) &
                                         thresholdedImage$y >= xydim & thresholdedImage$y <= (xytotal-xydim) &
                                         thresholdedImage$z >= zdim & thresholdedImage$z <= (ztotal-zdim),]
   return(correctedImage)
 }
-
 IdVoxel<-function(thresholdedImage){#this makes a df with the coordinates from all voxel objects
   dfVoxelCoords <- data.frame(which(thresholdedImage == 1, T))
   colnames(dfVoxelCoords) <- c("x", "y", "z")
   return(dfVoxelCoords)
 }
-
 SampleVoxels<-function(voxelsCoords, sampleSize){#randomly samples non-empty voxels from a thresholded image
   sampledVoxels <- sample(1:dim(voxelsCoords)[1], size = sampleSize)
   sampleVoxelsCoords <- voxelsCoords[sampledVoxels,]
   return(sampleVoxelsCoords)
 }
 
+#Only one of the following 2 functions may be used, DistanceRadius has one extra line to filter out distances out of the radius
 DistanceBox<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){
   #takes a voxel and collects all the surrounding voxels within the specified box
   #input of xydim and zdim is in voxels
@@ -65,7 +62,6 @@ DistanceBox<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){
   distances<-as.data.frame(t(cdist(t(as.matrix(c(xydim*xyscale, xydim*xyscale, zdim*zscale))), as.matrix(outboxCoords))))
   return(distances)
 }
-
 DistanceRadius<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){
   #takes a voxel and collects all the surrounding voxels within the specified sphere
   #input of xydim and zdim is in voxels
@@ -76,11 +72,15 @@ DistanceRadius<-function(focus,thresholdedImage, xydim, zdim, xyscale, zscale){
   outboxCoords$x<-outboxCoords$x*xyscale#convert pixels to real lengths
   outboxCoords$y<-outboxCoords$y*xyscale
   outboxCoords$z<-outboxCoords$z*zscale
+  radius<-(((xydim*2)+1)/2)*xyscale
   distances<-as.data.frame(t(cdist(t(as.matrix(c(xydim*xyscale, xydim*xyscale, zdim*zscale))), as.matrix(outboxCoords))))
-  distances<-subset(distances,!(distances[1]>(xydim*xyscale)))#this filters out all the distances larger than the radius
+  if(nrow(distances)>0){#this prevents code from breaking if there are no pixels in vecinity
+    distances<-subset(distances,!(distances[1]>(radius)))#this filters out all the distances larger than the radius
+  }
   return(distances)
 }
 
+#The following 4 functions are the first iteration of the pipeline. These functions have a square as the search volume and only look at histogram density over total non-empty voxels, in other words the sumation of the final data adds up to one.
 Binning<-function(dfDistances){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
   numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
   bins<-seq(0, max(dfDistances)+2,2)#establish the binning
@@ -88,7 +88,6 @@ Binning<-function(dfDistances){#takes the list of pairwise distances between foc
   densityTable<-as.data.frame(histogram$density*2)
   return(cbind(histogram$mids, densityTable))
 }
-
 LoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale ){
   loopBox<-list()
   for (i in 1:length(voxelsList[[1]])){
@@ -96,43 +95,12 @@ LoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, z
   }
   return(loopBox)
 }
-
 MergeStats<-function(dataList){
   mergeLoop<-Reduce(function(dtf1,dtf2) merge(dtf1,dtf2, by= "histogram$mids",all = TRUE),dataList)
   finalData<-cbind(mergeLoop[1],rowMeans(mergeLoop[c(-1)],na.rm = TRUE), apply(mergeLoop[c(-1)], 1, sd,na.rm = TRUE))
   colnames(finalData)<- c('distance', 'mean', 'SD')
   return(finalData)
 }
-
-RawBinning<-function(dfDistances, boxVol){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
-  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
-  bins<-seq(0, max(dfDistances)+2,2)#establish the binning
-  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
-  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
-  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
-  histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
-  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
-  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion)
-  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity")
-  return(finalData)
-  #return(numDistances)
-}
-
-RawLoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale ){
-  loopBox<-list()
-  boxVolum<-((xyBoxDim*2)+1)*((xyBoxDim*2)+1)*((zBoxDim*2)+1)
-  for (i in 1:length(voxelsList[[1]])){
-    loopBox[[i]]<-RawBinning(DistanceBox(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale), boxVolum)
-  }
-  return(loopBox)
-}
-
-RawMergeStats<-function(dataList){
-RbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),dataList)
-RbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity))%>% as.data.frame()->finalData
-return(finalData)
-}
-
 mainPipeline<-function(redImg,greenImg,xysize, zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim){
 voxCoordsRed<-CorrectSampleVolume(IdVoxel(redImg),xysize, zsize, xydimSearch, zdimSearch)
 voxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImg),xysize, zsize, xydimSearch, zdimSearch)
@@ -158,6 +126,33 @@ ggplot()+
   ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
 }
 
+#The following 4 functions are the second iteration of the pipeline. These functions have a square as the search volume and but the final data include counts over the whole volume of the box and not only the non-empty voxels.
+RawBinning<-function(dfDistances, boxVol){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
+  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
+  bins<-seq(0, max(dfDistances)+2,2)#establish the binning
+  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
+  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
+  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
+  histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
+  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
+  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion)
+  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity")
+  return(finalData)
+  #return(numDistances)
+}
+RawLoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale ){
+  loopBox<-list()
+  boxVolum<-((xyBoxDim*2)+1)*((xyBoxDim*2)+1)*((zBoxDim*2)+1)
+  for (i in 1:length(voxelsList[[1]])){
+    loopBox[[i]]<-RawBinning(DistanceBox(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale), boxVolum)
+  }
+  return(loopBox)
+}
+RawMergeStats<-function(dataList){
+RbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),dataList)
+RbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity))%>% as.data.frame()->finalData
+return(finalData)
+}
 rawPipeline<-function(redImg,greenImg,xysize, zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim){
 voxCoordsRed<-CorrectSampleVolume(IdVoxel(redImg),xysize, zsize, xydimSearch, zdimSearch)
 voxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImg),xysize, zsize, xydimSearch, zdimSearch)
@@ -183,9 +178,81 @@ ggplot()+
   ggtitle(paste("Search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
 }
 
+#The following 6 functionS are the third iteration of the pipeline. These functions have a spherical 
+HollowSphereVolume<-function(r1,r2){
+  volume1<-4/3*pi*(r1^3)
+  volume2<-4/3*pi*(r2^3)
+  return(volume2-volume1)
+}
+SpherePropOcc<-function(binsList, frequencyList, voxelSize){
+  propOcc<-array(0,length(frequencyList))
+  for (i in 1:length(frequencyList)){
+    propOcc[i]<-frequencyList[i]*voxelSize/HollowSphereVolume(binsList[i],binsList[i+1])
+    }
+  return(propOcc)
+}
+RawBinningNorm<-function(dfDistances, boxVol, binSize, voxelVol){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of "binSize" in microns
+  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
+  bins<-seq(0, max(dfDistances)+binSize,binSize)#establish the binning criteria
+  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
+  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
+  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
+  histDensityFunction<-as.data.frame(histogram$density*binSize)#these are the same as the top but using the function from hist class
+  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
+  histNormSphereBinning<-as.data.frame(SpherePropOcc(bins,histogram$counts,voxelVol))
+  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion, histNormSphereBinning)
+  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity", "normSphereDensity")
+  return(finalData)
+  }
+NormRawLoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale, loopBinSize ){
+  loopBox<-list()
+  radius<-((xyBoxDim*2)+1)/2
+  sphereVolum<-4/3*(radius^3)
+  voxelVolum<-xyScale*xyScale*zScale
+  for (i in 1:length(voxelsList[[1]])){
+    distanceList<-DistanceRadius(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale)
+    if(nrow(distanceList)>0){#this prevents code from breaking if there are no pixels in vecinity
+      loopBox[[i]]<-RawBinningNorm(distanceList, sphereVolum,loopBinSize, voxelVolum)
+      }
+    }
+  return(loopBox)
+  }
+NormRawMergeStats<-function(dataList){
+RbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),dataList)
+RbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity), normPropOccup=mean(normSphereDensity))%>% as.data.frame()->finalData
+return(finalData)
+}
+NormRawPipeline<-function(redImg,greenImg,xysize,zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim, pipeBinSize){
+voxCoordsRed<-CorrectSampleVolume(IdVoxel(redImg),xysize, zsize, xydimSearch, zdimSearch)
+voxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImg),xysize, zsize, xydimSearch, zdimSearch)
+
+sampleVoxRed<-SampleVoxels(voxCoordsRed, sampleSize)
+sampleVoxGreen<-SampleVoxels(voxCoordsGreen, sampleSize)
+
+distListRR<-NormRawLoopVoxels(sampleVoxRed, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
+distListRG<-NormRawLoopVoxels(sampleVoxRed, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
+distListGR<-NormRawLoopVoxels(sampleVoxGreen, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
+distListGG<-NormRawLoopVoxels(sampleVoxGreen, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
+
+finalRR<-NormRawMergeStats(distListRR)
+finalRG<-NormRawMergeStats(distListRG)
+finalGR<-NormRawMergeStats(distListGR)
+finalGG<-NormRawMergeStats(distListGG)
+
+finalData<-gdata::combine(finalGG,finalRG,finalRR,finalGR)
+
+ggplot()+
+  geom_point(data = finalData, aes(x=distance, y = rawDensity, color = source))+
+  #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+  ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+
+ggplot()+
+  geom_point(data = finalData, aes(x=distance, y = normPropOccup, color = source))+
+  #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+  ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+}
+
 ```
-
-
 ## Test Area
 ```{r test Area, include= FALSE, eval=FALSE, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
 
@@ -255,6 +322,12 @@ testRawBinningCenter<-RawBinning(testDistanceRadiusCenter, boxVolume)
 ggplot()+
   geom_point(data = testRawBinningCenter, aes(x=distance, y = counts))
 
+#This tests the SpherePropOcc function
+testBinsList<-seq(0, 22,2)
+testSpherePropOcc<-SpherePropOcc(testBinsList, testRawBinningCenter[2], 20)
+
+#this is the third generation 
+testRawBinningNorm<-RawBinningNorm(testDistanceRadiusCenter, boxVolume, 2)
 
 ```
 
@@ -406,41 +479,21 @@ ggplot()+
 
 ```
 
-## Test Spherical proportional occupancy
-```{r wt sg 1.4, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+## Test Normalized Spherical Proportional Occupancy
+```{r norm Spherical propo occupancy, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE}
+setwd("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/2014_11_26RomanTIFFs/Experiment #1/wt abscess/wt abscess #1.1")
+parent <- getwd()
+files <- dir(parent, recursive = T)
+tif <- files[grep("tif", files)]
+# split into channels
+c1_files <- tif[grep("Aa", tif)]
+c2_files <- tif[grep("Sg", tif)]
 
-RawBinningNorm<-function(dfDistances, boxVol, binSize){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of 2 uM
-  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
-  bins<-seq(0, max(dfDistances)+binSize,binSize)#establish the binning criteria
-  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
-  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
-  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
-  histDensityFunction<-as.data.frame(histogram$density*2)#these are the same as the top but using the function from hist class
-  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
-  histNormSphereBinning<-as.data.frame(SpherePropOcc(bins,histogram$counts,20))
-  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion, histNormSphereBinning)
-  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity", "NormSphereDensity")
-  return(finalData)
-}
+greenImgInput<-thresholdImage(c1_files,"green", 512)
+redImgInput<-thresholdImage(c2_files,"red", 512)
 
-SpherePropOcc<-function(binsList, frequencyList, voxelSize){
-  propOcc<-array(0,length(frequencyList))
-  for (i in 1:length(frequencyList)){
-    propOcc[i]<-frequencyList[i]*voxelSize/HollowSphereVolume(binsList[i],binsList[i+1])
-    }
-  return(propOcc)
-  }
-testBinsList<-seq(0, 22,2)
-testSpherePropOcc<-SpherePropOcc(testBinsList, testRawBinningCenter[2], 20)
-
-
-HollowSphereVolume<-function(r1,r2){
-  volume1<-4/3*pi*r1^3
-  volume2<-4/3*pi*r2^3
-  return(volume2-volume1)
-  }
-testRawBinningNorm<-RawBinningNorm(testDistanceRadiusCenter, boxVolume, 2)
-
-
+NormRawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=10,zdimSearch=3,sampleSize=1000,xyRealDim=1.24,zRealDim=4, pipeBinSize = 2)
+NormRawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=13,zdimSearch=4,sampleSize=1000,xyRealDim=1.24,zRealDim=4, pipeBinSize = 2)
+NormRawPipeline(redImgInput,greenImgInput,xysize=512, zsize=12,xydimSearch=16,zdimSearch=5,sampleSize=1000,xyRealDim=1.24,zRealDim=4, pipeBinSize = 2)
 
 ```
