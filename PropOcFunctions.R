@@ -28,7 +28,7 @@ thresholdImage<-function(filesList,channel,side){
   c1_t <- array(0, c(side, side, length(filesList)))
   for(i in 1:dim(c1)[3]){
     print(paste("thresholding ch1...", i, "/", length(filesList), filesList[i]))
-    if(mean(c1[,,i])==0){next}
+    if(mean(c1[,,i])==0){next}#the code breaks if you try to apply "autothreshold"" on an empty image, so this prevents it
     th <- autoThreshold(c1[,,i], mean(c1[,,i]))[2]
     c1_t[,,i][c1[,,i] > th] <- 1 
   }
@@ -137,10 +137,13 @@ NormRawPipeline<-function(redImg,greenImg,xysize,zsize,xydimSearch,zdimSearch,sa
   print(paste0("Green pixels: ",nrow(voxCoordsGreen)))
   sampleVoxRed<-SampleVoxels(voxCoordsRed, sampleSize)
   sampleVoxGreen<-SampleVoxels(voxCoordsGreen, sampleSize)
-  
+  print("processing red to red")
   distListRR<-NormRawLoopVoxels(sampleVoxRed, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
+  print("processing red to green")
   distListRG<-NormRawLoopVoxels(sampleVoxRed, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
+  print("processing green to red")
   distListGR<-NormRawLoopVoxels(sampleVoxGreen, redImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
+  print("processing green to green")
   distListGG<-NormRawLoopVoxels(sampleVoxGreen, greenImg, xydimSearch, zdimSearch, xyRealDim, zRealDim, pipeBinSize)
   
   finalRR<-NormRawMergeStats(distListRR)
