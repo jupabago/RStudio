@@ -27,7 +27,9 @@ thresholdImage<-function(filesList,channel,side){
   c1_t <- array(0, c(side, side, length(filesList)))
   for(i in 1:dim(c1)[3]){
     print(paste("thresholding ch1...", i, "/", length(filesList), filesList[i]))
+    if(mean(c1[,,i])==0){next}
     th <- autoThreshold(c1[,,i], mean(c1[,,i]))[2]
+    
     c1_t[,,i][c1[,,i] > th] <- 1 
   }
   return(c1_t)
@@ -336,13 +338,13 @@ ggplot()+
 testBinsList<-seq(0, 22,2)
 testSpherePropOcc<-SpherePropOcc(testBinsList, testRawBinningCenter[2], 20)
 #this is to test the third generation pipeline
+fileList<-getFiles("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/2014_11_26RomanTIFFs/Experiment #1/dspB abscess/dspB abscess #2.4")
+greenImgInput<-thresholdImage(fileList$c2,"green", 512)
+redImgInput<-thresholdImage(fileList$c1,"red", 512)
 
-greenImgInput<-thresholdImage(c1_files,"green", 512)
-redImgInput<-thresholdImage(c2_files,"red", 512)
 
-
-testVoxCoordsRed<-CorrectSampleVolume(IdVoxel(redImgInput),xytotal = 512, ztotal = 12, xydim=13, zdim=4)
-testVoxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImgInput),xytotal = 512, ztotal = 12, xydim=13, zdim=4)
+testVoxCoordsRed<-CorrectSampleVolume(IdVoxel(redImgInput),xytotal = 512, ztotal = 9, xydim=16, zdim=5)
+testVoxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImgInput),xytotal = 512, ztotal = 9, xydim=13, zdim=4)
 testSampleVoxRed<-SampleVoxels(testVoxCoordsRed, sampleSize=1000)
 testSampleVoxGreen<-SampleVoxels(testVoxCoordsGreen, sampleSize=1000)
 
