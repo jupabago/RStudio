@@ -4,27 +4,249 @@ author: "Juan P Barraza"
 date: "October 13, 2017"
 output: html_document
 ---
+```{r functions, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE, message=FALSE}
+rm(list = ls())
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+getFiles<-function(path){
+  setwd(path)  
+  parent <- getwd()
+  files <- dir(parent, recursive = T)
+  tif <- files[grep("tif", files)]
+  fileList<-list(c1=tif[grep("Aa", tif)],c2=tif[grep("Sg", tif)])
+}
+thresholdImage<-function(filesList,channel,side){
+  c1 <- array(0, c(side, side, length(filesList)))
+  for(i in 1:length(filesList)){
+    print(paste("loading ch1...", i, "/", length(filesList), filesList[i]))
+    c1[,,i]<-pixmap::getChannels(readTiff(filesList[i]), colors = channel)
+  }
+  c1_t <- array(0, c(side, side, length(filesList)))
+  for(i in 1:dim(c1)[3]){
+    print(paste("thresholding ch1...", i, "/", length(filesList), filesList[i]))
+    if(mean(c1[,,i])==0){next}#the code breaks if you try to apply "autothreshold"" on an empty image, so this prevents it
+    th <- autoThreshold(c1[,,i], mean(c1[,,i]))[2]
+    c1_t[,,i][c1[,,i] > th] <- 1 
+  }
+  return(c1_t)
+}
+CorrectSampleArea<-function(thresholdedImage, xytotal, xydim){#this limits the boundaries of voxel sampling to prevent going out of bounds
+  correctedImage<- thresholdedImage[  thresholdedImage$x >= xydim & thresholdedImage$x <= (xytotal-xydim) &
+                                        thresholdedImage$y >= xydim & thresholdedImage$y <= (xytotal-xydim),]
+  return(correctedImage)
+}
+IdVoxel<-function(thresholdedImage){#this makes a df with the coordinates from all voxel objects
+  dfVoxelCoords <- data.frame(which(thresholdedImage == 1, T))
+  colnames(dfVoxelCoords) <- c("x", "y", "z")
+  return(dfVoxelCoords)
+}
+IdPixel<-function(thresholdedImage){#this makes a df with the coordinates from all voxel objects
+  dfPixelCoords <- data.frame(which(thresholdedImage == 1, T))
+  colnames(dfPixelCoords) <- c("x", "y")
+  return(dfPixelCoords)
+}
+SampleVoxels<-function(voxelsCoords, sampleSize){#randomly samples non-empty voxels from a thresholded image
+  sampledVoxels <- sample(1:dim(voxelsCoords)[1], size = sampleSize)
+  sampleVoxelsCoords <- voxelsCoords[sampledVoxels,]
+  return(sampleVoxelsCoords)
+}
+SplitDims<-function(sampledPixels){
+  result<-list()
+  for (i in 1:4){
+    result[[i]] <- subset(sampledPixels,z==i)
+  }
+  return(result)
+}
+DistanceRadius<-function(focus,thresholdedImage, xydim, xyscale){
+  #takes a voxel and collects all the surrounding voxels within the specified sphere
+  #input of xydim and zdim is in voxels
+  #maximum distance allowed is capped at xydim*xyscale
+  outbox<-thresholdedImage[(focus$x-xydim):(focus$x+xydim), (focus$y-xydim):(focus$y+xydim), focus$z]#extract area surrounding focus pixel
+  outboxCoords<-(IdPixel(outbox))#find non-empty voxels in square
+  outboxCoords<-outboxCoords[c(-3)]#removes z column
+  outboxCoords<-outboxCoords-1#move to the origin
+  outboxCoords$x<-outboxCoords$x*xyscale#convert pixels to real lengths
+  outboxCoords$y<-outboxCoords$y*xyscale
+  radius<-(((xydim*2)+1)/2)*xyscale
+  distances<-as.data.frame(t(cdist(t(as.matrix(c(xydim*xyscale, xydim*xyscale))), as.matrix(outboxCoords))))
+  if(nrow(distances)>0){#this prevents code from breaking if there are no pixels in vecinity
+    distances<-subset(distances,!(distances[1]==0))#this removes the distance to self 
+  }
+  if(nrow(distances)>0){
+    distances<-subset(distances,!(distances[1]>(radius)))#this filters out all the distances larger than the radius
+  }
+  #code crashes if you dont do independent "if statements"
+  return(distances)
+}
+
+DonutArea<-function(r1,r2){
+  area1<-pi*(r1^2)
+  area2<-pi*(r2^2)
+  return(area2-area1)
+}
+CirclePropOcc<-function(binsList, frequencyList, pixelSize){
+  propOcc<-array(0,length(frequencyList))#binsList has 1 more item 
+  for (i in 1:length(frequencyList)){
+    propOcc[i]<-frequencyList[i]*pixelSize/DonutArea(binsList[i],binsList[i+1])
+  }
+  return(propOcc)
+}
+RawBinningNorm<-function(dfDistances, boxVol, binSize, pixelVol){#takes the list of pairwise distances between focus and object in box and outputs frequency density table binned by distances of "binSize" in microns
+  numDistances<-apply(dfDistances,1,as.numeric)#turn input df into numeric so hist() works
+  bins<-seq(0, max(dfDistances)+binSize,binSize)#establish the binning criteria
+  histogram<-hist(numDistances, breaks = bins, plot = FALSE)
+  histCounts<-as.data.frame(histogram$counts)#these are the raw counts per bin
+  histDensity<-as.data.frame(histogram$counts/length(numDistances))#these are the proportion of counts over non-empty pixels
+  histDensityFunction<-as.data.frame(histogram$density*binSize)#these are the same as the top but using the function from hist class
+  histProportion<-as.data.frame(histogram$counts/boxVol)#these are the proportion of counts over all pixels in box
+  histNormSphereBinning<-as.data.frame(CirclePropOcc(bins,histogram$counts,pixelVol))
+  finalData<-cbind(histogram$mids, histCounts, histDensity, histDensityFunction, histProportion, histNormSphereBinning)
+  colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity", "normSphereDensity")
+  return(finalData)
+}
+NormRawLoopPixels<-function(voxelsList, thresholdedImage, xyBoxDim, xyScale, loopBinSize ){
+  #takes as input a data frame of the coordinates of the sampled voxels and outputs a dataframe with the binned distance data
+  loopBox<-list()
+  radius<-((xyBoxDim*2)+1)/2
+  circleRadius<-pi*(radius^2)
+  pixelArea<-xyScale*xyScale
+  for (i in 1:length(voxelsList[[1]])){
+    distanceList<-DistanceRadius(voxelsList[i,],thresholdedImage, xyBoxDim, xyScale)
+    if(nrow(distanceList)>0){#this prevents code from breaking if there are no pixels in vecinity
+      loopBox[[i]]<-RawBinningNorm(distanceList, circleRadius,loopBinSize, pixelArea)
+    }
+  }
+  return(loopBox)
+}
+NormRawMergeStats<-function(dataList){
+  RbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),dataList)
+  RbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity), normPropOccup=mean(normSphereDensity))%>% as.data.frame()->finalData
+  return(finalData)
+}
+NormRawPipeline<-function(redImg,greenImg,xysize,xydimSearch,sampleSize,xyRealDim, pipeBinSize){
+  voxCoordsRed<-CorrectSampleArea(IdVoxel(redImg),xysize,xydimSearch)
+  voxCoordsGreen<-CorrectSampleArea(IdVoxel(greenImg),xysize,xydimSearch)
+  print(paste0("Red pixels: ",nrow(voxCoordsRed)))
+  print(paste0("Green pixels: ",nrow(voxCoordsGreen)))
+  samplePixRed<-SampleVoxels(voxCoordsRed, sampleSize)
+  samplePixGreen<-SampleVoxels(voxCoordsGreen, sampleSize)
+  print("processing red to red")
+  distListRR<-NormRawLoopPixels(samplePixRed, redImg, xydimSearch, xyRealDim, pipeBinSize)
+  print("processing red to green")
+  distListRG<-NormRawLoopPixels(samplePixRed, greenImg, xydimSearch, xyRealDim, pipeBinSize)
+  print("processing green to red")
+  distListGR<-NormRawLoopPixels(samplePixGreen, redImg, xydimSearch, xyRealDim, pipeBinSize)
+  print("processing green to green")
+  distListGG<-NormRawLoopPixels(samplePixGreen, greenImg, xydimSearch, xyRealDim, pipeBinSize)
+  
+  finalRR<-NormRawMergeStats(distListRR)
+  finalRG<-NormRawMergeStats(distListRG)
+  finalGR<-NormRawMergeStats(distListGR)
+  finalGG<-NormRawMergeStats(distListGG)
+  
+  finalData<-gdata::combine(finalGG,finalRG,finalRR,finalGR)
+  
+  ggplot()+
+    geom_point(data = finalData, aes(x=distance, y = rawDensity, color = source))+
+    #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+    ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=", sep = ''))
+  
+  ggplot()+
+    geom_point(data = finalData, aes(x=distance, y = normPropOccup, color = source))+
+    #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
+    ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim), sep = ''))
+}
 ```
 
-## R Markdown
+```{r test, echo=FALSE, fig.width=4, fig.height=3, results='hide', warning=FALSE, message=FALSE}
+#Image pixels go from 113 to 144
+testImage <- array(0, c(256, 256, 9))
+testImage[,,1]<-readTiff("square.tiff")@red
+testImage[,,2] <-readTiff("square.tiff")@red
+testImage[,,3] <-readTiff("square.tiff")@red
+testImage[,,4] <-readTiff("square.tiff")@red
+testImage[,,5] <-readTiff("square.tiff")@red
+testImage[,,6] <-readTiff("square.tiff")@red
+testImage[,,7] <-readTiff("square.tiff")@red
+testImage[,,8] <-readTiff("square.tiff")@red
+testImage[,,9] <-readTiff("square.tiff")@red
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+xysize<-256
+zsize<-9
+xydimSearch<-10
+zdimSearch<-4
+boxVolume<-((xydimSearch*2)+1)*((xydimSearch*2)+1)*((zdimSearch*2)+1)
+xyRealDim<-2
+zRealDim<-5
+sampleSize<-100
+testImageCoords <- IdVoxel(testImage)
+correctedTestImageCoords<-CorrectSampleVolume(testImageCoords, xysize, zsize, xydimSearch, zdimSearch)
+testSampleVoxels<-SampleVoxels(correctedTestImageCoords, sampleSize)
+testLoopVoxels<-LoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim)
+testMergeStats<-MergeStats(testLoopVoxels)
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+testDistanceBox1<-DistanceBox(testSampleVoxels[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceBox2<-DistanceBox(testSampleVoxels[2,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceBox3<-DistanceBox(testSampleVoxels[3,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
 
-```{r cars}
-summary(cars)
+#Tests for new binning function
+testRawBinning1<-RawBinning(testDistanceBox1, boxVolume)
+testRawBinning2<-RawBinning(testDistanceBox2, boxVolume)
+testRawBinning3<-RawBinning(testDistanceBox3, boxVolume)
+
+testRawLoopVoxels<-RawLoopVoxels(testSampleVoxels, testImage, xydimSearch, zdimSearch, xyRealDim, zRealDim) 
+testRbindRawMergeLoopAll<-Reduce(function(dtf1,dtf2) rbind(dtf1,dtf2),testRawLoopVoxels)
+testRbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity))%>% as.data.frame()->testSummarize
+
+#Tests for original binning function
+testBinning1<-Binning(testDistanceBox1)
+testBinning2<-Binning(testDistanceBox2)
+testBinning3<-Binning(testDistanceBox3)
+testListBinning<-list()
+testListBinning[[1]]<- testBinning1
+testListBinning[[2]]<- testBinning2
+testListBinning[[3]]<- testBinning3
+
+#this is to test function "MergeStats" individually
+testMergeLoop<-Reduce(function(dtf1,dtf2) merge(dtf1,dtf2, by= "histogram$mids",all = TRUE),testLoopVoxels)
+finalData<-cbind(testMergeLoop[1],rowMeans(testMergeLoop[c(-1)],na.rm = TRUE), apply(testMergeLoop[c(-1)], 1, sd,na.rm = TRUE))
+colnames(finalData)<- c('distance', 'mean', 'SD')
+
+#this is to test distance from the central voxel specific voxel
+testSquareCenter<-data.frame(c(128),c(128),c(5))
+colnames(testSquareCenter)<-c("x", "y","z")
+testDistanceBoxCenter<-DistanceBox(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testDistanceRadiusCenter<-DistanceRadius(testSquareCenter[1,],testImage, xydimSearch, zdimSearch,xyRealDim,zRealDim)
+testRawBinningCenter<-RawBinning(testDistanceRadiusCenter, boxVolume)
+ggplot()+
+  geom_point(data = testRawBinningCenter, aes(x=distance, y = counts))
+
+#This tests the SpherePropOcc function
+testBinsList<-seq(0, 22,2)
+testSpherePropOcc<-SpherePropOcc(testBinsList, testRawBinningCenter[2], 20)
+#this is to test the third generation pipeline
+fileList<-getFiles("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/2014_11_26RomanTIFFs/Experiment #1/dspB abscess/dspB abscess #2.4")
+greenImgInput<-thresholdImage(fileList$c2,"green", 512)
+redImgInput<-thresholdImage(fileList$c1,"red", 512)
+
+testVoxCoordsRed<-CorrectSampleArea(IdVoxel(redImgInput),xytotal = 512, xydim=16)
+testVoxCoordsGreen<-CorrectSampleArea(IdVoxel(greenImgInput),xytotal = 512, xydim=13)
+
+testSampleVoxRed<-SampleVoxels(testVoxCoordsRed, sampleSize=1000)
+testSampleVoxGreen<-SampleVoxels(testVoxCoordsGreen, sampleSize=1000)
+
+testDistanceRadius<-DistanceRadius(testSampleVoxRed[1,], redImgInput, xydim=13, xyscale=1.24)
+testNormRawLoopPixels<-NormRawLoopPixels(pixelsList=testSampleVoxGreen, thresholdedImage=redImgInput, xyBoxDim=13, xyScale=1.24, loopBinSize=2 )
+testRawBinningNorm<-RawBinningNorm(testDistanceRadiusCenter, boxVolume, 2)
+
+testDistListRG<-NormRawLoopVoxels(testSampleVoxRed, greenImgInput, xyBoxDim=13, zBoxDim=4, xyScale = 1.24, zScale = 4, loopBinSize = 2)
+testDistListGR<-NormRawLoopVoxels(testSampleVoxGreen, redImgInput, xyBoxDim=13, zBoxDim=4, xyScale = 1.24, zScale = 4, loopBinSize = 2)
+testDistListGG<-NormRawLoopVoxels(testSampleVoxGreen, greenImgInput, xyBoxDim=13, zBoxDim=4, xyScale = 1.24, zScale = 4, loopBinSize = 2)
+testDistListRR<-NormRawLoopVoxels(testSampleVoxRed, redImgInput, xyBoxDim=13, zBoxDim=4, xyScale = 1.24, zScale = 4, loopBinSize = 2)
+
+fileList<-getFiles("~/Dropbox (Whiteley Lab)/BrownWhiteleyShare/2014_11_26RomanTIFFs/Experiment #1/dspB abscess/dspB abscess #2.4")
+greenImgInput<-thresholdImage(fileList$c2,"green", 512)
+redImgInput<-thresholdImage(fileList$c1,"red", 512)
+NormRawPipeline(redImg=redImgInput,greenImg=greenImgInput,xysize=512,xydimSearch=13,sampleSize=1000,xyRealDim=1.24, pipeBinSize=2)
+
+
 ```
-
-## Including Plots
-
-You can also embed plots, for example:
-
-```{r pressure, echo=FALSE}
-plot(pressure)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
