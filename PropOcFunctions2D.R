@@ -154,5 +154,5 @@ NormRawPipeline<-function(redImg,greenImg,xysize,xydimSearch,sampleSize,xyRealDi
     geom_point(data = finalData, aes(x=distance, y = normPropOccup, color = source))+
     #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
     ggtitle(paste("Proportional occupancy r=",((((xydimSearch*2)+1)/2)*xyRealDim), sep = ''))+
-    labs(title = experiment, x = "Proportional Occupancy", y = "Distance (um)")
+    labs(title = experiment, y = "Proportional Occupancy", x = "Distance (um)")
 }
