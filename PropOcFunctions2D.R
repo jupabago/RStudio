@@ -44,6 +44,11 @@ IdVoxel<-function(thresholdedImage){#this makes a df with the coordinates from a
   colnames(dfVoxelCoords) <- c("x", "y", "z")
   return(dfVoxelCoords)
 }
+IdPixel<-function(thresholdedImage){#this makes a df with the coordinates from all voxel objects
+  dfPixelCoords <- data.frame(which(thresholdedImage == 1, T))
+  colnames(dfPixelCoords) <- c("x", "y")
+  return(dfPixelCoords)
+}
 SampleVoxels<-function(voxelsCoords, sampleSize){#randomly samples non-empty voxels from a thresholded image
   sampledVoxels <- sample(1:dim(voxelsCoords)[1], size = sampleSize)
   sampleVoxelsCoords <- voxelsCoords[sampledVoxels,]
@@ -61,7 +66,7 @@ DistanceRadius<-function(focus,thresholdedImage, xydim, xyscale){
   #input of xydim and zdim is in voxels
   #maximum distance allowed is capped at xydim*xyscale
   outbox<-thresholdedImage[(focus$x-xydim):(focus$x+xydim), (focus$y-xydim):(focus$y+xydim), focus$z]#extract area surrounding focus pixel
-  outboxCoords<-(IdVoxel(outbox))#find non-empty voxels in square
+  outboxCoords<-(IdPixel(outbox))#find non-empty voxels in square
   outboxCoords<-outboxCoords[c(-3)]#removes z column
   outboxCoords<-outboxCoords-1#move to the origin
   outboxCoords$x<-outboxCoords$x*xyscale#convert pixels to real lengths
@@ -103,14 +108,14 @@ RawBinningNorm<-function(dfDistances, boxVol, binSize, pixelVol){#takes the list
   colnames(finalData)<- c('distance', 'counts', 'normDensity', "funcDensity", "rawDensity", "normSphereDensity")
   return(finalData)
 }
-NormRawLoopPixels<-function(pixelsList, thresholdedImage, xyBoxDim, xyScale, loopBinSize ){
+NormRawLoopPixels<-function(voxelsList, thresholdedImage, xyBoxDim, xyScale, loopBinSize ){
   #takes as input a data frame of the coordinates of the sampled voxels and outputs a dataframe with the binned distance data
   loopBox<-list()
   radius<-((xyBoxDim*2)+1)/2
   circleRadius<-pi*(radius^2)
   pixelArea<-xyScale*xyScale
   for (i in 1:length(pixelsList[[1]])){
-    distanceList<-DistanceRadius(pixelsList[i,],thresholdedImage, xyBoxDim, xyScale)
+    distanceList<-DistanceRadius(voxelsList[i,],thresholdedImage, xyBoxDim, xyScale)
     if(nrow(distanceList)>0){#this prevents code from breaking if there are no pixels in vecinity
       loopBox[[i]]<-RawBinningNorm(distanceList, circleRadius,loopBinSize, pixelArea)
     }
