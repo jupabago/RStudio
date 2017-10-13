@@ -115,7 +115,7 @@ RawBinningNorm<-function(dfDistances, boxVol, binSize, voxelVol){#takes the list
 NormRawLoopVoxels<-function(voxelsList, thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale, loopBinSize ){
   loopBox<-list()
   radius<-((xyBoxDim*2)+1)/2
-  sphereVolum<-4/3*(radius^3)
+  sphereVolum<-4/3*pi*(radius^3)
   voxelVolum<-xyScale*xyScale*zScale
   for (i in 1:length(voxelsList[[1]])){
     distanceList<-DistanceRadius(voxelsList[i,],thresholdedImage, xyBoxDim, zBoxDim, xyScale, zScale)
