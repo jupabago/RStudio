@@ -114,7 +114,7 @@ NormRawLoopPixels<-function(voxelsList, thresholdedImage, xyBoxDim, xyScale, loo
   radius<-((xyBoxDim*2)+1)/2
   circleRadius<-pi*(radius^2)
   pixelArea<-xyScale*xyScale
-  for (i in 1:length(pixelsList[[1]])){
+  for (i in 1:length(voxelsList[[1]])){
     distanceList<-DistanceRadius(voxelsList[i,],thresholdedImage, xyBoxDim, xyScale)
     if(nrow(distanceList)>0){#this prevents code from breaking if there are no pixels in vecinity
       loopBox[[i]]<-RawBinningNorm(distanceList, circleRadius,loopBinSize, pixelArea)
@@ -127,7 +127,7 @@ NormRawMergeStats<-function(dataList){
   RbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity), normPropOccup=mean(normSphereDensity))%>% as.data.frame()->finalData
   return(finalData)
 }
-NormRawPipeline<-function(redImg,greenImg,xysize,xydimSearch,sampleSize,xyRealDim, pipeBinSize){
+NormRawPipeline<-function(redImg,greenImg,xysize,xydimSearch,sampleSize,xyRealDim, pipeBinSize,experiment){
   voxCoordsRed<-CorrectSampleArea(IdVoxel(redImg),xysize,xydimSearch)
   voxCoordsGreen<-CorrectSampleArea(IdVoxel(greenImg),xysize,xydimSearch)
   print(paste0("Red pixels: ",nrow(voxCoordsRed)))
@@ -151,12 +151,8 @@ NormRawPipeline<-function(redImg,greenImg,xysize,xydimSearch,sampleSize,xyRealDi
   finalData<-gdata::combine(finalGG,finalRG,finalRR,finalGR)
   
   ggplot()+
-    geom_point(data = finalData, aes(x=distance, y = rawDensity, color = source))+
-    #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
-    ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
-  
-  ggplot()+
     geom_point(data = finalData, aes(x=distance, y = normPropOccup, color = source))+
     #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
-    ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+    ggtitle(paste("Proportional occupancy r=",((((xydimSearch*2)+1)/2)*xyRealDim), sep = ''))+
+    labs(title = experiment, x = "Proportional Occupancy", y = "Distance (um)")
 }
