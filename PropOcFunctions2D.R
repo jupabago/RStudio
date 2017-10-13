@@ -128,12 +128,12 @@ NormRawMergeStats<-function(dataList){
   return(finalData)
 }
 NormRawPipeline<-function(redImg,greenImg,xysize,xydimSearch,sampleSize,xyRealDim, pipeBinSize){
-  pixCoordsRed<-CorrectSampleArea(IdVoxel(redImg),xysize,xydimSearch)
-  pixCoordsGreen<-CorrectSampleArea(IdVoxel(greenImg),xysize,xydimSearch)
+  voxCoordsRed<-CorrectSampleArea(IdVoxel(redImg),xysize,xydimSearch)
+  voxCoordsGreen<-CorrectSampleArea(IdVoxel(greenImg),xysize,xydimSearch)
   print(paste0("Red pixels: ",nrow(voxCoordsRed)))
   print(paste0("Green pixels: ",nrow(voxCoordsGreen)))
-  samplePixRed<-SampleVoxels(pixCoordsRed, sampleSize)
-  samplePixGreen<-SampleVoxels(pixCoordsGreen, sampleSize)
+  samplePixRed<-SampleVoxels(voxCoordsRed, sampleSize)
+  samplePixGreen<-SampleVoxels(voxCoordsGreen, sampleSize)
   print("processing red to red")
   distListRR<-NormRawLoopPixels(samplePixRed, redImg, xydimSearch, xyRealDim, pipeBinSize)
   print("processing red to green")
