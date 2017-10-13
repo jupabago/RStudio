@@ -34,7 +34,11 @@ thresholdImage<-function(filesList,channel,side){
   }
   return(c1_t)
 }
-
+CorrectSampleArea<-function(thresholdedImage, xytotal, xydim){#this limits the boundaries of voxel sampling to prevent going out of bounds
+  correctedImage<- thresholdedImage[  thresholdedImage$x >= xydim & thresholdedImage$x <= (xytotal-xydim) &
+                                        thresholdedImage$y >= xydim & thresholdedImage$y <= (xytotal-xydim),]
+  return(correctedImage)
+}
 IdVoxel<-function(thresholdedImage){#this makes a df with the coordinates from all voxel objects
   dfVoxelCoords <- data.frame(which(thresholdedImage == 1, T))
   colnames(dfVoxelCoords) <- c("x", "y", "z")
@@ -119,8 +123,8 @@ NormRawMergeStats<-function(dataList){
   return(finalData)
 }
 NormRawPipeline<-function(redImg,greenImg,xysize,xydimSearch,sampleSize,xyRealDim, pipeBinSize){
-  pixCoordsRed<-IdVoxel(redImg)
-  pixCoordsGreen<-IdVoxel(greenImg)
+  pixCoordsRed<-CorrectSampleArea(IdVoxel(redImg),xysize,xydimSearch)
+  pixCoordsGreen<-CorrectSampleArea(IdVoxel(greenImg),xysize,xydimSearch)
   print(paste0("Red pixels: ",nrow(voxCoordsRed)))
   print(paste0("Green pixels: ",nrow(voxCoordsGreen)))
   samplePixRed<-SampleVoxels(pixCoordsRed, sampleSize)
