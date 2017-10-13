@@ -130,7 +130,7 @@ NormRawMergeStats<-function(dataList){
   RbindRawMergeLoopAll%>%group_by(distance)%>%summarise(meanCounts=mean(counts),normDensity=mean(normDensity),funcDensity=mean(funcDensity),rawDensity=mean(rawDensity), normPropOccup=mean(normSphereDensity))%>% as.data.frame()->finalData
   return(finalData)
 }
-NormRawPipeline<-function(redImg,greenImg,xysize,zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim, pipeBinSize){
+NormRawPipeline<-function(redImg,greenImg,xysize,zsize,xydimSearch,zdimSearch,sampleSize,xyRealDim,zRealDim, pipeBinSize, experiment){
   voxCoordsRed<-CorrectSampleVolume(IdVoxel(redImg),xysize, zsize, xydimSearch, zdimSearch)
   voxCoordsGreen<-CorrectSampleVolume(IdVoxel(greenImg),xysize, zsize, xydimSearch, zdimSearch)
   print(paste0("Red pixels: ",nrow(voxCoordsRed)))
@@ -152,14 +152,10 @@ NormRawPipeline<-function(redImg,greenImg,xysize,zsize,xydimSearch,zdimSearch,sa
   finalGG<-NormRawMergeStats(distListGG)
   
   finalData<-gdata::combine(finalGG,finalRG,finalRR,finalGR)
-  
-  ggplot()+
-    geom_point(data = finalData, aes(x=distance, y = rawDensity, color = source))+
-    #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
-    ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
-  
+
   ggplot()+
     geom_point(data = finalData, aes(x=distance, y = normPropOccup, color = source))+
     #geom_errorbar(data = finalData, aes(x=distance, ymin = mean-SD, ymax = mean+SD))
-    ggtitle(paste("Density in search box r (XY=",((((xydimSearch*2)+1)/2)*xyRealDim)," Z=",((((zdimSearch*2)+1)/2)*zRealDim),")", sep = ''))
+    ggtitle(paste("Proportional occupancy r= ",((((xydimSearch*2)+1)/2)*xyRealDim), sep = ''))+
+    labs(title = experiment, y = "Proportional Occupancy", x = "Distance (um)")
 }
