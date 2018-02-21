@@ -1,0 +1,90 @@
+---
+title: "Pa Sa pqsL CLSM growth curves Matlab"
+author: "Juan P Barraza"
+date: "November 28, 2017"
+output: html_document
+---
+
+
+```{r setup, echo=FALSE, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
+library(knitr)
+library(gdata)
+library(magrittr)
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+library(tidyr)
+library(growthcurver)
+
+rm(list = ls())
+
+source('/Users/jupabago/testRstudioGithub/Matlab Growth Curves.R')
+positions<-9
+timepoints<-10
+#get data from individual replicates
+PAO1_1<-GetPositions(GetData("/Volumes/Seagate Exp/GATECH images/11-8-17_timeSeries/results", positions, timepoints))
+PAO1_2<-GetPositions(GetData("/Volumes/Seagate Exp/GATECH images/11-11-17_timeSeries/results", positions, timepoints))
+PAO1_3<-GetPositions(GetData("/Volumes/Seagate Exp/GATECH images/11-12-17_timeSeries/results", positions, timepoints))
+PA14_1<-GetPositions(GetData("/Volumes/Seagate Exp/GATECH images/11-14-17_timeSeries/results", positions, timepoints))
+#calculate ratios of Pa:Sa
+ratioPAO1_1<-GetRatio(PAO1_1)
+ratioPAO1_2<-GetRatio(PAO1_2)
+ratioPAO1_3<-GetRatio(PAO1_3)
+ratioPA14_1<-GetRatio(PA14_1)
+#combine replicates
+allData<-gdata::combine(PAO1_1,PAO1_2,PAO1_3,PA14_1)
+no2Data<-gdata::combine(PAO1_1,PAO1_3)
+allRatios<-gdata::combine(ratioPAO1_1,ratioPAO1_2,ratioPAO1_3,ratioPA14_1)
+#get stats
+allData%>% group_by(Bug, condition, timePoint) %>% summarise(cellCount = mean(Biomass), cellSD = sd(Biomass)) %>% as.data.frame() -> allDataMean
+no2Data%>% group_by(Bug, condition, timePoint) %>% summarise(cellCount = mean(Biomass), cellSD = sd(Biomass)) %>% as.data.frame() -> no2DataMean
+allRatios%>% group_by(condition, timepoint) %>% summarise(cellCount = mean(ratio), cellSD = sd(ratio)) %>% as.data.frame() -> allRatiosMean
+CLSMComparison<-allDataMean[(allDataMean$timePoint==1|allDataMean$timePoint==3|allDataMean$timePoint==5|allDataMean$timePoint==7|allDataMean$timePoint==9),]
+#get growth curves
+growthCurveData<-spread(allDataMean[,-5], condition, cellCount)
+SaGrowthCurveData<-growthCurveData[(growthCurveData$Bug == "Sa"),][,-c(1,4,5)]
+PaGrowthCurveData<-growthCurveData[(growthCurveData$Bug == "Pa"),][,-c(1,3)]
+SaGrowthRate<-SummarizeGrowthByPlate(SaGrowthCurveData, bg_correct = "none")
+PaGrowthRate<-SummarizeGrowthByPlate(PaGrowthCurveData, bg_correct = "none")
+```
+
+##Growth curves generated from Confocal Data
+```{r graphs, echo=FALSE, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
+#plot data
+plotMeans(allDataMean, "Combined Growth Curves for all samples")
+plotMeans(no2DataMean, "Combined Growth Curves for PAO1-1 and PAO1-3", "These two samples were more consistent between them, PAO1-2 and PA14-1 had significantly low numbers in plate counts and on the images, so the inoculum may have been compromised")
+
+plotRatios(allRatios, "condition", "Ratio of PA to Sa", "Color is condition in this case to better illustrate condition effect")
+plotRatios(allRatios, "source", "Ratio of PA to Sa", "Color is sample in this case to better illustrate sample effect")
+plotGrowthCurve(allData, "Individual growth curves")
+```
+
+##Comparison of Growth rates from Confocal Data and CFUs
+Growth rates were calculated using 2 different methods: using the formula G= t/ln2(ln Nx/No) and fitting to a model.       
+The model worked fine for the Confocal data, but not so much for the CFUs so shown below is a comparison between them.     
+Carolyn has calculated 1.5 and 1 hr as growth rate previously. The different values depend on the timepoints used to calculate it.
+
+```{r growth rates, echo=FALSE, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
+growthRatesCsv <-read.csv("/Users/jupabago/Documents/Whiteley/PROJECTS/pqsL SCFM2/growthRates.csv", header = TRUE)
+ggplot()+
+  geom_point(data=growthRatesCsv,aes(x=Method, y=Rate, color = Experiment, shape = Condition), size=2)+
+  ggtitle("Growth Rates")+
+  facet_wrap(~Bug)+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+kable(SaGrowthRate[,c(1,2,3,4,6)], caption = "Growth rate parameters for Sa from Model")
+kable(PaGrowthRate[,c(1,2,3,4,6)], caption = "Growth rate parameters for Pa from Model")
+```
+
+##Comparison of Growth rates from Confocal Data and CFUs   
+This is the graph that you suggested comparing pixel biomass with CFUs. I think it looks decent.
+
+```{r CLSM CFUs COMPARISON, echo=FALSE, fig.width=9, fig.height=7, results='asis', warning=FALSE, message=FALSE}
+comparisonCsv<-read.csv("/Users/jupabago/Documents/Whiteley/PROJECTS/pqsL SCFM2/CLSM CFU comparison table.csv", header = TRUE)
+ggplot()+
+  geom_point(data=comparisonCsv,aes(x=CFUs, y=biomass, color = condition, shape = factor(time)), size=2)+
+  scale_y_log10(name=expression(paste('Biomass (pixels)' )), breaks = scales::trans_breaks("log10", function(x) 10^x), labels = scales::trans_format("log10", scales::math_format(10^.x)))+
+  scale_x_log10(name=expression(paste('CFUs per mL' )), breaks = scales::trans_breaks("log10", function(x) 10^x), labels = scales::trans_format("log10", scales::math_format(10^.x)))+
+  facet_wrap(~bug)+
+  ggtitle("CLSM-CFUs comparison")
+```
