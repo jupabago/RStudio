@@ -1,0 +1,179 @@
+---
+title: "Time course proportional occupancy report"
+author: "Juan P Barraza"
+date: "12/5/2017"
+output: html_document
+---
+
+```{r setup, echo=FALSE, fig.width=12, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+library(ggplot2)
+library(dplyr)
+library(cowplot)
+
+pao1_1<-read.csv("~/Documents/Whiteley/PROJECTS/pqsL SCFM2/Prop oc time series data/Matlab thresholding/PAO1_1_PropOc Data.csv", header = TRUE)
+pao1_2<-read.csv("~/Documents/Whiteley/PROJECTS/pqsL SCFM2/Prop oc time series data/Matlab thresholding/PAO1_2_PropOc Data.csv", header = TRUE)
+pao1_3<-read.csv("~/Documents/Whiteley/PROJECTS/pqsL SCFM2/Prop oc time series data/Matlab thresholding/PAO1_3_PropOc Data.csv", header = TRUE)
+pa14_1<-read.csv("~/Documents/Whiteley/PROJECTS/pqsL SCFM2/Prop oc time series data/Matlab thresholding/PA14_1_PropOc Data.csv", header = TRUE)
+
+
+PropOcCleanUp<-function(df){#This function removes irrelevant comparisons from the results dataframe
+  df<-df[!(df$position==0 & df$source %in% c("finalRG","finalGG","finalGR")),]#remove first Sa mono
+  df<-df[!(df$position==5 & df$source %in% c("finalRG","finalGG","finalGR")),]#remove second Sa mono
+  df<-df[!(df$position==1 & df$source %in% c("finalRG","finalRR","finalGR")),]
+  df<-df[!(df$position==6 & df$source %in% c("finalRG","finalRR","finalGR")),]
+  df<-df[!(df$position==2 & df$source %in% c("finalRG","finalRR","finalGR")),]
+  df<-df[!(df$position==7 & df$source %in% c("finalRG","finalRR","finalGR")),]
+  df%>%mutate(rep=1)
+  df$rep[df$position >= 5]<-2
+  df$rep[df$position < 5]<-1
+  df%>%mutate(bug="")
+  df$bug[df$source == "finalRG"]<-"Sa"
+  df$bug[df$source == "finalRR"]<-"Sa"
+  df$bug[df$source == "finalGG"]<-"Pa"
+  df$bug[df$source == "finalGR"]<-"Pa"
+  df$timePoint<-factor(df$timePoint)
+  
+  return(df)
+}
+
+graphPropOcTimeCourse<-function(df,title){
+  df$timePoint<-factor(df$timePoint)
+  levels(df$timePoint)<-c("hour 1","hour 2","hour 3","hour 4","hour 5","hour 6","hour 7","hour 8","hour 9","hour 10","hour 11")
+  df$source<factor(df$source)
+  levels(df$source)<-c("Pa-Pa", "Pa-Sa", "Sa-Pa", "Sa-Sa")
+  df%>%mutate(condition="")
+  df$condition[df$position %in% c(0,5)]<-"Sa Mono"
+  df$condition[df$position %in% c(1,6)]<-"Pa wt Mono"
+  df$condition[df$position %in% c(2,7)]<-"Pa pqsL Mono"
+  df$condition[df$position %in% c(3,8)]<-"wt Co"
+  df$condition[df$position %in% c(4,9)]<-"pqsL Co"
+  ggplot()+
+    geom_point(data = df, aes(x=distance, y = normPropOccup, color = condition, shape = source, fill=factor(rep)))+
+    labs(title = paste0("Proportional Occupancy over time ",title), y = "Proportional Occupancy", x = "Distance (um)", color="condition", shape = "relation", fill= "tech rep")+
+    facet_wrap(~timePoint, nrow = 2)
+}
+graphPropOcTimeCourseTest<-function(df,title){
+  df%>%mutate(condition="")
+  df$condition[df$position %in% c(0,5)]<-"Sa Mono"
+  df$condition[df$position %in% c(1,6)]<-"Pa wt Mono"
+  df$condition[df$position %in% c(2,7)]<-"Pa pqsL Mono"
+  df$condition[df$position %in% c(3,8)]<-"wt Co"
+  df$condition[df$position %in% c(4,9)]<-"pqsL Co"
+  ggplot()+
+    geom_point(data = df, aes(x=distance, y = normPropOccup, color = factor(condition), shape = factor(source), fill=factor(rep)    ))+
+    #labs(title = paste0("Proportional Occupancy over time ",title), y = "Proportional Occupancy", x = "Distance (um)", color="condition", shape = "relation", fill= "tech rep")+
+    scale_fill_manual(values=c("black",NA))+
+    facet_wrap(~timePoint, nrow = 2)
+}
+
+graphEmptySpaceTimeCourse<-function(df,title){
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(0,5))%>%mutate(emptySpace = 1-normPropOccup)->rMSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(1,6))%>%mutate(emptySpace = 1-normPropOccup)->gwMSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(2,7))%>%mutate(emptySpace = 1-normPropOccup)->gmMSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(3,8))%>%filter(source %in% c("finalRR","finalRG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rwCSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(3,8))%>%filter(source %in% c("finalGR","finalGG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gwCSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(4,9))%>%filter(source %in% c("finalRR","finalRG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rmCSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(4,9))%>%filter(source %in% c("finalGR","finalGG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gmCSat
+  ggplot()+
+    geom_line(data = gwMSat, aes(x=distance, y = emptySpace, color = "Pa wt mono ", linetype = factor(rep)))+
+    geom_line(data = gmMSat, aes(x=distance, y = emptySpace, color = "Pa mut mono ", linetype = factor(rep)))+
+    geom_line(data = rMSat, aes(x=distance, y = emptySpace, color = "Sa mono ", linetype = factor(rep)))+
+    geom_line(data = gwCSat, aes(x=distance, y = emptySpace, color = "Pa wt co ", linetype = factor(rep)))+
+    geom_line(data = rwCSat, aes(x=distance, y = emptySpace, color = "Sa wt co ", linetype = factor(rep)))+
+    geom_line(data = gmCSat, aes(x=distance, y = emptySpace, color = "Pa mut co ", linetype = factor(rep)))+
+    geom_line(data = rmCSat, aes(x=distance, y = emptySpace, color = "Sa mut co ", linetype = factor(rep)))+
+    labs(title = paste0("Empty space over time",title), y = "Proportional Occupancy", x = "Distance (um)", color="condition", linetype = "Tech rep")+
+    facet_wrap(~timePoint, nrow = 2)
+}
+graphEmptySpaceTimeCourseSa<-function(df,title){
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(0,5))%>%mutate(emptySpace = 1-normPropOccup)->rMSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(3,8))%>%filter(source %in% c("finalRR","finalRG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rwCSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(4,9))%>%filter(source %in%  c("finalRR","finalRG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rmCSat
+
+  ggplot()+
+    geom_line(data = rMSat, aes(x=distance, y = emptySpace, color = "Sa mono ", linetype = factor(rep)))+
+    geom_line(data = rwCSat, aes(x=distance, y = emptySpace, color = "Sa wt co ", linetype = factor(rep)))+
+    geom_line(data = rmCSat, aes(x=distance, y = emptySpace, color = "Sa mut co ", linetype = factor(rep)))+
+    labs(title = paste0("Sa Empty space over time",title), y = "Proportional Occupancy", x = "Distance (um)", color="condition", linetype = "Tech rep")+
+    facet_wrap(~timePoint, nrow = 2)
+}
+
+graphEmptySpaceTimeCoursePa<-function(df, title){
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(1,6))%>%mutate(emptySpace = 1-normPropOccup)->gwMSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(2,7))%>%mutate(emptySpace = 1-normPropOccup)->gmMSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(3,8))%>%filter(source %in% c("finalGR","finalGG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gwCSat
+  df%>%select(distance, normPropOccup, timePoint, position, source, rep)%>%filter(position %in% c(4,9))%>%filter(source %in% c("finalGR","finalGG"))%>%group_by(distance,timePoint, position, rep)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gmCSat
+  ggplot()+
+    geom_line(data = gwMSat, aes(x=distance, y = emptySpace, color = "Pa wt mono", linetype = factor(rep)))+
+    geom_line(data = gmMSat, aes(x=distance, y = emptySpace, color = "Pa mut mono", linetype = factor(rep)))+
+    geom_line(data = gwCSat, aes(x=distance, y = emptySpace, color = "Pa wt co", linetype = factor(rep)))+
+    geom_line(data = gmCSat, aes(x=distance, y = emptySpace, color = "Pa mut co", linetype = factor(rep)))+
+    labs(title = paste0("Pa Empty space over time",title), y = "Proportional Occupancy", x = "Distance (um)", color="condition", linetype = "Tech rep")+
+    facet_wrap(~timePoint, nrow = 2)
+}
+pao1_1_clean<-PropOcCleanUp(pao1_1)
+pao1_2_clean<-PropOcCleanUp(pao1_2)
+pao1_3_clean<-PropOcCleanUp(pao1_3)
+pa14_1_clean<-PropOcCleanUp(pa14_1)
+
+
+```
+##Proportional occupancy Sa    
+
+
+```{r propOc Sa, echo=FALSE, fig.width=11, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphPropOcTimeCourse(pao1_1_clean[(pao1_1_clean$bug=="Sa"),], "PAO1-1 (Sa only)")
+graphPropOcTimeCourse(pao1_2_clean[(pao1_2_clean$bug=="Sa"),], "PAO1-2 (Sa only)")
+graphPropOcTimeCourse(pao1_3_clean[(pao1_3_clean$bug=="Sa"),], "PAO1-3 (Sa only)")
+graphPropOcTimeCourse(pa14_1_clean[(pa14_1_clean$bug=="Sa"),], "PA14-1 (Sa only)")
+
+```
+   
+   
+##Proportional occupancy Pa 
+
+```{r propOc Pa, echo=FALSE, fig.width=11, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphPropOcTimeCourse(pao1_1_clean[(pao1_1_clean$bug=="Pa"),], "PAO1-1 (Pa only)")
+graphPropOcTimeCourse(pao1_2_clean[(pao1_2_clean$bug=="Pa"),], "PAO1-2 (Pa only)")
+graphPropOcTimeCourse(pao1_3_clean[(pao1_3_clean$bug=="Pa"),], "PAO1-3 (Pa only)")
+graphPropOcTimeCourse(pa14_1_clean[(pa14_1_clean$bug=="Pa"),], "PA14-1 (Pa only)")
+
+```
+
+   
+##Proportional occupancy   
+```{r propOc Total, echo=FALSE, fig.width=11, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphPropOcTimeCourse(pao1_1_clean, "PAO1-1")
+graphPropOcTimeCourse(pao1_2_clean, "PAO1-2")
+graphPropOcTimeCourse(pao1_3_clean, "PAO1-3")
+graphPropOcTimeCourse(pa14_1_clean, "PA14-1")
+
+```
+
+##Empty Space around Sa     
+```{r EmptySpace Sa, echo=FALSE, fig.width=11, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphEmptySpaceTimeCourseSa(pao1_1_clean, "PAO1-1 (Sa only)")
+graphEmptySpaceTimeCourseSa(pao1_2_clean, "PAO1-2 (Sa only)")
+graphEmptySpaceTimeCourseSa(pao1_3_clean, "PAO1-3 (Sa only)")
+graphEmptySpaceTimeCourseSa(pa14_1_clean, "PA14-1 (Sa only)")
+
+```
+
+##Empty Space around Pa     
+```{r EmptySpace Pa, echo=FALSE, fig.width=11, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphEmptySpaceTimeCoursePa(pao1_1_clean, "PAO1-1 (Pa only)")
+graphEmptySpaceTimeCoursePa(pao1_2_clean, "PAO1-2 (Pa only)")
+graphEmptySpaceTimeCoursePa(pao1_3_clean, "PAO1-3 (Pa only)")
+graphEmptySpaceTimeCoursePa(pa14_1_clean, "PA14-1 (Pa only)")
+
+```
+
+##Empty Space showing both Pa and Sa     
+```{r EmptySpace Total, echo=FALSE, fig.width=11, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphEmptySpaceTimeCourse(pao1_1_clean, "PAO1-1")
+graphEmptySpaceTimeCourse(pao1_2_clean, "PAO1-2")
+graphEmptySpaceTimeCourse(pao1_3_clean, "PAO1-3")
+graphEmptySpaceTimeCourse(pa14_1_clean, "PA41-1")
+
+```
+
