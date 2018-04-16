@@ -1,0 +1,139 @@
+---
+title: "Prop Oc Report April 21"
+output: html_document
+---
+```{r fetch data, echo=FALSE, fig.width=12, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+
+library(pixmap)
+library(rtiff)
+library(reshape2)
+library(gplots)
+library(dplyr)
+library(gdata)
+library(ggplot2)
+library(cowplot)
+
+Pa01_60um_2k_bin1_1<-read.csv("/home/whiteley/JuanRscripts/Reports/PropOcData/pa01_60um_1.csv", header = TRUE)
+Pa01_60um_2k_bin1_2<-read.csv("/home/whiteley/JuanRscripts/Reports/PropOcData/pa01_60um_2.csv", header = TRUE)
+Pa14_60um_2k_bin1_1<-read.csv("/home/whiteley/JuanRscripts/Reports/PropOcData/pa14_60um_1.csv", header = TRUE)
+Pa14_60um_2k_bin1_2<-read.csv("/home/whiteley/JuanRscripts/Reports/PropOcData/pa14_60um_2.csv", header = TRUE)
+Pa14_60um_2k_bin1_3<-read.csv("/home/whiteley/JuanRscripts/Reports/PropOcData/pa14_60um_3.csv", header = TRUE)
+Pa14_60um_2k_bin1_4<-read.csv("/home/whiteley/JuanRscripts/Reports/PropOcData/pa14_60um_4.csv", header = TRUE)
+
+PropOcCleanUp<-function(df,strain,replicate){#This function removes irrelevant comparisons from the results dataframe
+  df<-df[!(df$position==0 & df$source %in% c("finalRG","finalGG","finalGR")),]#remove Sa mono
+  df<-df[!(df$position==1 & df$source %in% c("finalRG","finalRR","finalGR")),]
+  df<-df[!(df$position==2 & df$source %in% c("finalRG","finalRR","finalGR")),]
+  df$bug[df$source == "finalRG"]<-"Sa"
+  df$bug[df$source == "finalRR"]<-"Sa"
+  df$bug[df$source == "finalGG"]<-"Pa"
+  df$bug[df$source == "finalGR"]<-"Pa"
+  df$timePoint<-factor(df$timePoint)
+  levels(df$timePoint)<-c("hour 1","hour 2.5","hour 4","hour 5.5","hour 7","hour 8.5","hour 10","hour 11.5","hour 13","hour 14.5","hour 16","hour 17.5")
+  levels(df$source)<-c("Pa->Pa", "Pa->Sa", "Sa->Pa", "Sa->Sa")
+  df$condition[df$position %in% c(0)]<-"Sa Mono"
+  if (strain=='PAO1'){
+    df$condition[df$position %in% c(1)]<-"PAO1 Mono"
+    df$condition[df$position %in% c(2)]<-"PA14wt Mono"
+    df$condition[df$position %in% c(3)]<-"PA01 Co"
+    df$condition[df$position %in% c(4)]<-"PA14wt Co"
+    }
+  if (strain=='PA14'){
+    df$condition[df$position %in% c(1)]<-"PA14wt Mono"
+    df$condition[df$position %in% c(2)]<-"PA14pqsL Mono"
+    df$condition[df$position %in% c(3)]<-"PA14wt Co"
+    df$condition[df$position %in% c(4)]<-"PA14pqsL Co"
+  }
+  df$rep<-replicate
+  df$strain<-strain
+  return(df)
+}
+cleanPa01_60um_2k_bin1_1<-PropOcCleanUp(Pa01_60um_2k_bin1_1,"PAO1",1)
+cleanPa01_60um_2k_bin1_2<-PropOcCleanUp(Pa01_60um_2k_bin1_2,"PAO1",2)
+cleanPa14_60um_2k_bin1_1<-PropOcCleanUp(Pa14_60um_2k_bin1_1,"PA14",1)
+cleanPa14_60um_2k_bin1_2<-PropOcCleanUp(Pa14_60um_2k_bin1_2,"PA14",2)
+cleanPa14_60um_2k_bin1_3<-PropOcCleanUp(Pa14_60um_2k_bin1_3,"PA14",3)
+cleanPa14_60um_2k_bin1_4<-PropOcCleanUp(Pa14_60um_2k_bin1_4,"PA14",4)
+allPa01_60um_2k_bin1<-gdata::combine(cleanPa01_60um_2k_bin1_1,cleanPa01_60um_2k_bin1_2)
+allPa14_60um_2k_bin1<-gdata::combine(cleanPa14_60um_2k_bin1_1,cleanPa14_60um_2k_bin1_2,cleanPa14_60um_2k_bin1_3,cleanPa14_60um_2k_bin1_4)
+allPa_60um_2k_bin1<-gdata::combine(cleanPa01_60um_2k_bin1_1,cleanPa01_60um_2k_bin1_2,cleanPa14_60um_2k_bin1_1,cleanPa14_60um_2k_bin1_2,cleanPa14_60um_2k_bin1_3,cleanPa14_60um_2k_bin1_4)
+```
+
+
+```{r graphing Proportional Occupancy1, echo=FALSE, fig.width=12, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphPropOcTimeCoursePA01Reps<-function(df,title){
+  ggplot()+
+    geom_point(data = df, aes(x=distance, y = normPropOccup, color = condition, shape = source))+
+    labs(title = paste0("Proportional Occupancy over time ",title), y = "Proportional Occupancy", x = "Distance (um)", color="condition", shape = "relation", fill= "tech rep")+
+    facet_wrap(~timePoint, nrow = 2)}
+
+graphStatsPropOcReps<-function(df,subtitle){
+df%>%select(distance, normPropOccup, timePoint, position, source,condition, rep, strain)%>%filter(source %in% c("Sa->Pa","Pa->Sa"))%>%group_by(distance,timePoint,source,strain,condition,rep)%>%summarise(avgPropOc=mean(normPropOccup),SDPropOc=sd(normPropOccup) )%>% as.data.frame()->statsPropOc
+
+ggplot()+
+  geom_point(data = df, aes(x=distance, y = normPropOccup, color = source.1, shape= condition), size = 3)+
+  #geom_line(data = df, aes(x=distance, y = normPropOccup, color = source, shape= condition))+
+  #geom_errorbar(aes(x=distance, ymin=avgPropOc-SDPropOc, ymax=avgPropOc+SDPropOc,color=source), data = statsPropOc,width=.1) +
+  labs(title = paste0("Difference between replicates"),subtitle = subtitle, y = "Proportional Occupancy", x = "Distance (um)", shape= "condition")+
+  facet_wrap(~timePoint, nrow = 2)+
+  #scale_colour_discrete(name="Focus->Surrounding",breaks=c("finalGR", "finalRG"),labels=c("Pa->Sa", "Sa->Pa"))+
+  #scale_shape_discrete(name = "Condition", breaks=c("WtCo", "PqsLCo"), labels=c("Sa+PA14wt", "Sa+PA14-pqsL"))+
+  #scale_size_continuous(guide = FALSE)+
+  theme(legend.position="bottom",legend.direction='vertical')
+  }
+
+#this compares all the replicates naively
+graphStatsPropOcReps(allPa01_60um_2k_bin1[(allPa01_60um_2k_bin1$source=="Sa->Pa"),], "Pa01, 60 um, bin 1, 10k sample (Sa->Pa only)")
+graphStatsPropOcReps(allPa14_60um_2k_bin1[(allPa14_60um_2k_bin1$source=="Sa->Pa"),], "Pa14, 60 um, bin 1, 10k sample (Sa->Pa only)")
+graphStatsPropOcReps(allPa_60um_2k_bin1[(allPa_60um_2k_bin1$source=="Sa->Pa"),], "Pa01 and Pa14, 60 um, bin 1, 10k sample (Sa->Pa only)")
+
+graphStatsPropOcReps(allPa01_60um_2k_bin1[(allPa01_60um_2k_bin1$source=="Pa->Sa"),], "Pa01, 60 um, bin 1, 10k sample (Sa->Pa only)")
+graphStatsPropOcReps(allPa14_60um_2k_bin1[(allPa14_60um_2k_bin1$source=="Pa->Sa"),], "Pa14, 60 um, bin 1, 10k sample (Sa->Pa only)")
+graphStatsPropOcReps(allPa_60um_2k_bin1[(allPa_60um_2k_bin1$source=="Pa->Sa"),], "Pa01 and Pa14, 60 um, bin 1, 10k sample (Sa->Pa only)")
+
+
+allPa_60um_2k_bin1[(allPa_60um_2k_bin1$condition=="PA14wt Co"),]->allPa_60um_2k_bin1_Pa14wtonly
+graphStatsPropOcReps(allPa_60um_2k_bin1_Pa14wtonly[(allPa_60um_2k_bin1_Pa14wtonly$source=="Sa->Pa"),], "Pa14 wt only, 60 um, bin 1, 10k sample (Sa->Pa only)")
+graphStatsPropOcReps(allPa_60um_2k_bin1_Pa14wtonly[(allPa_60um_2k_bin1_Pa14wtonly$source=="Pa->Pa"),], "Pa14 wt only, 60 um, bin 1, 10k sample (Pa->Pa only)")
+
+allPa_60um_2k_bin1[(allPa_60um_2k_bin1$condition=="PA14pqsL Co"),]->allPa_60um_2k_bin1_Pa14pqsLonly
+graphStatsPropOcReps(allPa_60um_2k_bin1_Pa14pqsLonly[(allPa_60um_2k_bin1_Pa14pqsLonly$source=="Sa->Pa"),], "Pa14 pqsL only, 60 um, bin 1, 10k sample (Sa->Pa only)")
+graphStatsPropOcReps(allPa_60um_2k_bin1_Pa14pqsLonly[(allPa_60um_2k_bin1_Pa14pqsLonly$source=="Pa->Pa"),], "Pa14 pqsL only, 60 um, bin 1, 10k sample (Pa->Pa only)")
+```
+
+```{r graphing Empty Space, echo=FALSE, fig.width=12, fig.height=9, results='asis', warning=FALSE, message=FALSE}
+graphEmptySpaceTimeCourse<-function(df,title,exp){
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA14wt Co"))%>%filter(source %in% c("Sa->Pa","Sa->Sa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rCSatPa14wt
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA14wt Co"))%>%filter(source %in% c("Pa->Sa","Pa->Pa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gCSatPa14wt
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA14wt Co","PA01 Co"))%>%filter(source %in% c("Sa->Pa","Sa->Sa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rCSatPaAll
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA14wt Co","PA01 Co"))%>%filter(source %in% c("Pa->Sa","Pa->Pa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gCSatPaAll
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA14pqsL Co"))%>%filter(source %in% c("Sa->Pa","Sa->Sa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rCSatPa14pqsL
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA14pqsL Co"))%>%filter(source %in% c("Pa->Sa","Pa->Pa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gCSatPa14pqsL
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA01 Co"))%>%filter(source %in% c("Sa->Pa","Sa->Sa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rCSatPa01
+  df%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA01 Co"))%>%filter(source %in% c("Pa->Sa","Pa->Pa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->gCSatPa01
+  if(exp=="r14"){p<-geom_line(data = rCSatPa14wt, aes(x=distance, y = emptySpace, color = source.1))}
+  if(exp=="g14"){p<-geom_line(data = gCSatPa14wt, aes(x=distance, y = emptySpace, color = source.1))}
+  if(exp=="r01"){p<-geom_line(data = rCSatPa01, aes(x=distance, y = emptySpace, color = source.1))}
+  if(exp=="g01"){p<-geom_line(data = gCSatPa01, aes(x=distance, y = emptySpace, color = source.1))}
+  if(exp=="rpqsL"){p<-geom_line(data = rCSatPa14pqsL, aes(x=distance, y = emptySpace, color = source.1))}
+  if(exp=="gpqsL"){p<-geom_line(data = gCSatPa14pqsL, aes(x=distance, y = emptySpace, color = source.1))}
+  if(exp=="rall"){p<-geom_line(data = rCSatPaAll, aes(x=distance, y = emptySpace, color = source.1))}
+  if(exp=="gall"){p<-geom_line(data = gCSatPaAll, aes(x=distance, y = emptySpace, color = source.1))}
+  ggplot()+
+    p+
+    labs(title = paste0("Empty space around ",title), y = "Proportional Occupancy", x = "Distance (um)", color="condition")+
+    facet_wrap(~timePoint, nrow = 2)}
+
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "Sa, in co-culture with Pa",'rall')
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "Sa, in co-culture with PA14 wt",'r14')
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "Sa, in co-culture with PA01",'r01')
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "Sa, in co-culture with PA14 pqsL",'rpqsL')
+
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "Pa, in co-culture with Sa",'gall')
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "PA14, in co-culture with Sa",'g14')
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "PA01, in co-culture with Sa",'g01')
+graphEmptySpaceTimeCourse(allPa_60um_2k_bin1, "Pa14 PqsL pqsL, in co-culture with Sa",'gpqsL')
+
+allPa_60um_2k_bin1%>%select(distance, normPropOccup, timePoint, condition, source, source.1)%>%filter(condition %in% c("PA14wt Co","PA01 Co"))%>%filter(source %in% c("Sa->Pa","Sa->Sa"))%>%group_by(distance,timePoint, condition, source.1)%>%summarise(total=sum(normPropOccup))%>%mutate(emptySpace = 1-total)->rCSatPaAll
+
+```
